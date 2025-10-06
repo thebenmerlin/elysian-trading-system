@@ -1,9 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": [
-      "ES2020"
-    ],
+    "lib": ["ES2020"],
     "module": "commonjs",
     "moduleResolution": "node",
     "esModuleInterop": true,
@@ -19,23 +17,21 @@
     "emitDecoratorMetadata": true,
     "baseUrl": "./src",
     "paths": {
-      "@/*": [
-        "./*"
-      ],
-      "@/utils/*": [
-        "./utils/*"
-      ],
-      "@/api/*": [
-        "./api/*"
-      ]
+      "@/*": ["./*"],
+      "@/api/*": ["./api/*"],
+      "@/utils/*": ["./utils/*"],
+      "@/db/*": ["./db/*"],
+      "@/features/*": ["./features/*"],
+      "@/signal_engine/*": ["./signal_engine/*"],
+      "@/runner/*": ["./runner/*"],
+      "@/portfolio/*": ["./portfolio/*"],
+      "@/reports/*": ["./reports/*"],
+      "@/reflection/*": ["./reflection/*"],
+      "@/execution/*": ["./execution/*"],
+      "@/ai_reasoner/*": ["./ai_reasoner/*"],
+      "@/data_ingestor/*": ["./data_ingestor/*"]
     }
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/*.test.ts"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
