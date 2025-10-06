@@ -1,0 +1,33 @@
+# Elysian Trading System - Render Deploy Configuration
+services:
+  - type: web
+    name: elysian-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: elysian-db
+          property: connectionString
+      - key: RUNNER_TICKERS
+        value: AAPL,MSFT,GOOGL,NVDA,TSLA
+      - key: ELYSIAN_LIVE
+        value: false
+      - key: INITIAL_CASH
+        value: 100000
+      - key: HF_API_KEY
+        sync: false
+      - key: ELYSIAN_API_KEY
+        generateValue: true
+    healthCheckPath: /internal/health
+
+databases:
+  - name: elysian-db
+    plan: free
+    postgresMajorVersion: 15

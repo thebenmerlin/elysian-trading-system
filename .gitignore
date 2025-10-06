@@ -1,0 +1,17 @@
+node_modules/
+venv/
+.env
+.env.local
+*.log
+.DS_Store
+ml/model_artifacts/
+*.pkl
+*.onnx
+
+docker-compose.override.yml
+.vscode/
+.idea/
+node_modules/
+.env
+ml/model_artifacts/
+.DS_Store

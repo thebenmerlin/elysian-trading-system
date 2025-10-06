@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "name": "elysian-frontend",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "@elysian_api_url",
+    "NEXT_PUBLIC_API_KEY": "@elysian_api_key"
+  },
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_API_URL": "@elysian_api_url",
+      "NEXT_PUBLIC_API_KEY": "@elysian_api_key"
+    }
+  }
+}

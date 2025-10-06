@@ -1,0 +1,91 @@
+# Elysian Trading System - Docker Compose
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: elysian_db
+    environment:
+      POSTGRES_DB: elysian
+      POSTGRES_USER: elysian_user
+      POSTGRES_PASSWORD: elysian_dev_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/db/migrations.sql:/docker-entrypoint-initdb.d/01-migrations.sql
+      - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elysian_user -d elysian"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../Dockerfile
+    container_name: elysian_backend
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgres://elysian_user:elysian_dev_pass@postgres:5432/elysian
+      RUNNER_TICKERS: AAPL,MSFT,GOOGL,NVDA,TSLA
+      ELYSIAN_LIVE: false
+      INITIAL_CASH: 100000
+      RUN_INTERVAL_MINUTES: 15
+      AUTO_START_RUNNER: false
+      HF_API_KEY: ${HF_API_KEY:-}
+      ELYSIAN_API_KEY: elysian-demo-key
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/reports:/app/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/internal/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: elysian_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_API_KEY: elysian-demo-key
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: elysian_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: elysian_network
