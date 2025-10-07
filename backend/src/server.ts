@@ -1,8 +1,11 @@
+/// <reference types="node" />
+
 /**
  * Elysian Trading System - Main Server
  * Express.js server with all API routes and middleware
  */
 
+import * as process from 'process';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -39,8 +42,8 @@ const limiter = rateLimit({
     message: 'Please try again later',
     retryAfter: '1 minute'
   },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // Global middleware
@@ -51,7 +54,7 @@ app.use(cors({
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true
 }));
-app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -60,7 +63,7 @@ app.use('/api/', limiter);
 app.use('/internal/', limiter);
 
 // API key validation middleware
-const validateApiKey = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const validateApiKey = (req: any, res: any, next: any) => {
   const apiKey = req.headers['x-elysian-key'] || req.query.api_key;
   const validKey = process.env.ELYSIAN_API_KEY || 'elysian-demo-key';
   
@@ -76,7 +79,7 @@ const validateApiKey = (req: express.Request, res: express.Response, next: expre
 };
 
 // Request logging middleware
-app.use((req, res, next) => {
+app.use((req: any, res: any, next: any) => {
   const startTime = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - startTime;
@@ -91,7 +94,7 @@ app.use((req, res, next) => {
 });
 
 // Health check route (no auth required)
-app.get('/health', async (req, res) => {
+app.get('/health', async (req: any, res: any) => {
   try {
     const dbHealthy = await DatabaseManager.healthCheck();
     res.json({
@@ -101,7 +104,7 @@ app.get('/health', async (req, res) => {
       uptime: process.uptime(),
       database: dbHealthy ? 'connected' : 'disconnected'
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(500).json({
       status: 'unhealthy',
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -118,7 +121,7 @@ app.use('/api/reflections', validateApiKey, reflectionsRoutes);
 app.use('/internal', validateApiKey, internalRoutes);
 
 // Default route
-app.get('/', (req, res) => {
+app.get('/', (req: any, res: any) => {
   res.json({
     name: 'Elysian Trading System',
     version: '1.0.0',
@@ -137,7 +140,7 @@ app.get('/', (req, res) => {
 });
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (req: any, res: any) => {
   res.status(404).json({
     error: 'Endpoint not found',
     message: `The endpoint ${req.method} ${req.originalUrl} does not exist`,
@@ -146,7 +149,7 @@ app.use('*', (req, res) => {
 });
 
 // Error handling middleware
-app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((error: any, req: any, res: any, next: any) => {
   logger.error('Unhandled error:', error);
   
   res.status(500).json({
@@ -212,12 +215,12 @@ const startServer = async () => {
 };
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: any) => {
   logger.error('Uncaught Exception:', error);
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason: any, promise: any) => {
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });

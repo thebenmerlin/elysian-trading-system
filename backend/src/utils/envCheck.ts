@@ -1,3 +1,6 @@
+/// <reference types="node" />
+
+import * as process from 'process';
 import { logger } from './logger';
 
 interface EnvConfig {
@@ -92,16 +95,4 @@ export function validateEnvironment(): void {
   }
   
   logger.info('Environment validation completed successfully');
-}
-
-export function getRequiredEnvVars(): string[] {
-  return [...envConfig.required];
-}
-
-export function getOptionalEnvVars(): string[] {
-  return [...envConfig.optional];
-}
-
-export function getEnvDefaults(): Record<string, string> {
-  return { ...envConfig.defaults };
 }
