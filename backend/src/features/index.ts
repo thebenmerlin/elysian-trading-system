@@ -143,12 +143,14 @@ export class FeaturesEngine {
       fastPeriod: 12,
       slowPeriod: 26,
       signalPeriod: 9,
-      values: closes
+      values: closes,
+      SimpleMAOscillator: false,
+      SimpleMASignal: false
     });
     const latestMacd = macdData[macdData.length - 1] || { MACD: 0, signal: 0, histogram: 0 };
-    const macd_line = latestMacd.MACD;
-    const macd_signal = latestMacd.signal;
-    const macd_histogram = latestMacd.histogram;
+    const macd_line = latestMacd.MACD || 0;
+    const macd_signal = latestMacd.signal || 0;
+    const macd_histogram = latestMacd.histogram || 0;
     const macd_bullish = macd_line > macd_signal;
 
     // Bollinger Bands
@@ -158,10 +160,10 @@ export class FeaturesEngine {
       values: closes
     });
     const latestBB = bbData[bbData.length - 1] || { upper: price, middle: price, lower: price, pb: 0.5 };
-    const bb_upper = latestBB.upper;
-    const bb_middle = latestBB.middle;
-    const bb_lower = latestBB.lower;
-    const bb_percent_b = latestBB.pb;
+    const bb_upper = latestBB.upper || price;
+    const bb_middle = latestBB.middle || price;
+    const bb_lower = latestBB.lower || price;
+    const bb_percent_b = latestBB.pb || 0.5;
     const bb_squeeze = (bb_upper - bb_lower) / bb_middle < 0.1;
 
     // Volume features
