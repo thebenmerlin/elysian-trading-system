@@ -9,17 +9,18 @@ import helmet from 'helmet'
 import morgan from 'morgan'
 import rateLimit from 'express-rate-limit'
 import dotenv from 'dotenv'
-import { logger } from '@/utils/logger'
-import { DatabaseManager } from '@/utils/database'
-import { tradingRunner } from '@/runner'
-import { validateEnvironment } from '@/utils/envCheck'
+import { logger } from './utils/logger'          // ← Changed from '@/utils/logger'
+import { DatabaseManager } from './utils/database'  // ← Changed from '@/utils/database'
+import { tradingRunner } from './runner'           // ← Changed from '@/runner'
+import { validateEnvironment } from './utils/envCheck'  // ← Changed from '@/utils/envCheck'
 
 // Import API routes
-import portfolioRoutes from '@/api/routes/portfolio'
-import tradesRoutes from '@/api/routes/trades'
-import reportsRoutes from '@/api/routes/reports'
-import reflectionsRoutes from '@/api/routes/reflections'
-import internalRoutes from '@/api/routes/internal'
+import portfolioRoutes from './api/routes/portfolio'     // ← Changed from '@/api/routes/portfolio'
+import tradesRoutes from './api/routes/trades'           // ← Changed from '@/api/routes/trades'
+import reportsRoutes from './api/routes/reports'         // ← Changed from '@/api/routes/reports'
+import reflectionsRoutes from './api/routes/reflections' // ← Changed from '@/api/routes/reflections'
+import internalRoutes from './api/routes/internal'       // ← Changed from '@/api/routes/internal'
+
 
 // Load environment variables
 dotenv.config()
