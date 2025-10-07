@@ -7,8 +7,11 @@ import React from 'react'
 import { useQuery } from 'react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
-import { apiClient, formatDate, formatPercentage } from '@/utils/api'
+import { apiClient, formatDate, formatCurrency, formatPercentage } from '@/utils/api'
 import { Brain, TrendingUp, AlertTriangle, Target, RefreshCw } from 'lucide-react'
+// At the top of the file, update the import from api utils:
+
+
 
 export default function Reflections() {
   const { data: reflections, refetch } = useQuery(
