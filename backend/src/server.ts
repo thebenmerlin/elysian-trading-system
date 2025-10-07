@@ -3,33 +3,32 @@
  * Express.js server with all API routes and middleware
  */
 
-import express from 'express'
-import cors from 'cors'
-import helmet from 'helmet'
-import morgan from 'morgan'
-import rateLimit from 'express-rate-limit'
-import dotenv from 'dotenv'
-import { logger } from './utils/logger'          // ← Changed from '@/utils/logger'
-import { DatabaseManager } from './utils/database'  // ← Changed from '@/utils/database'
-import { tradingRunner } from './runner'           // ← Changed from '@/runner'
-import { validateEnvironment } from './utils/envCheck'  // ← Changed from '@/utils/envCheck'
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import dotenv from 'dotenv';
+import { logger } from './utils/logger';
+import { DatabaseManager } from './utils/database';
+import { tradingRunner } from './runner';
+import { validateEnvironment } from './utils/envCheck';
 
 // Import API routes
-import portfolioRoutes from './api/routes/portfolio'     // ← Changed from '@/api/routes/portfolio'
-import tradesRoutes from './api/routes/trades'           // ← Changed from '@/api/routes/trades'
-import reportsRoutes from './api/routes/reports'         // ← Changed from '@/api/routes/reports'
-import reflectionsRoutes from './api/routes/reflections' // ← Changed from '@/api/routes/reflections'
-import internalRoutes from './api/routes/internal'       // ← Changed from '@/api/routes/internal'
-
+import portfolioRoutes from './api/routes/portfolio';
+import tradesRoutes from './api/routes/trades';
+import reportsRoutes from './api/routes/reports';
+import reflectionsRoutes from './api/routes/reflections';
+import internalRoutes from './api/routes/internal';
 
 // Load environment variables
-dotenv.config()
+dotenv.config();
 
 // Validate environment variables
-validateEnvironment()
+validateEnvironment();
 
-const app = express()
-const PORT = process.env.PORT || 4000
+const app = express();
+const PORT = process.env.PORT || 4000;
 
 // Rate limiting middleware
 const limiter = rateLimit({
@@ -42,79 +41,81 @@ const limiter = rateLimit({
   },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-})
+});
 
 // Global middleware
-app.use(helmet())
+app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? [process.env.FRONTEND_URL || 'https://elysian-frontend.vercel.app']
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true
-}))
-app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }))
-app.use(express.json({ limit: '10mb' }))
-app.use(express.urlencoded({ extended: true }))
+}));
+app.use(morgan('combined', { stream: { write: (message) => logger.info(message.trim()) } }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // Apply rate limiting to API routes only
-app.use('/api/', limiter)
-app.use('/internal/', limiter)
+app.use('/api/', limiter);
+app.use('/internal/', limiter);
 
 // API key validation middleware
 const validateApiKey = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-  const apiKey = req.headers['x-elysian-key'] || req.query.api_key
-  const validKey = process.env.ELYSIAN_API_KEY || 'elysian-demo-key'
+  const apiKey = req.headers['x-elysian-key'] || req.query.api_key;
+  const validKey = process.env.ELYSIAN_API_KEY || 'elysian-demo-key';
   
   if (apiKey !== validKey) {
     return res.status(401).json({
       error: 'Invalid API key',
-      message: 'Please provide a valid x-elysian-key header'
-    })
+      message: 'Please provide a valid x-elysian-key header',
+      timestamp: new Date().toISOString()
+    });
   }
   
-  next()
-}
+  next();
+};
 
 // Request logging middleware
 app.use((req, res, next) => {
-  req.startTime = Date.now()
+  const startTime = Date.now();
   res.on('finish', () => {
-    const duration = Date.now() - req.startTime
+    const duration = Date.now() - startTime;
     logger.info(`${req.method} ${req.path}`, {
       status: res.statusCode,
       duration: `${duration}ms`,
       ip: req.ip,
       userAgent: req.get('User-Agent')
-    })
-  })
-  next()
-})
+    });
+  });
+  next();
+});
 
 // Health check route (no auth required)
 app.get('/health', async (req, res) => {
   try {
-    const dbHealthy = await DatabaseManager.healthCheck()
+    const dbHealthy = await DatabaseManager.healthCheck();
     res.json({
       status: dbHealthy ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
       version: '1.0.0',
       uptime: process.uptime(),
       database: dbHealthy ? 'connected' : 'disconnected'
-    })
+    });
   } catch (error) {
     res.status(500).json({
       status: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    })
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
   }
-})
+});
 
 // API Routes with authentication
-app.use('/api/portfolio', validateApiKey, portfolioRoutes)
-app.use('/api/trades', validateApiKey, tradesRoutes)
-app.use('/api/reports', validateApiKey, reportsRoutes)
-app.use('/api/reflections', validateApiKey, reflectionsRoutes)
-app.use('/internal', validateApiKey, internalRoutes)
+app.use('/api/portfolio', validateApiKey, portfolioRoutes);
+app.use('/api/trades', validateApiKey, tradesRoutes);
+app.use('/api/reports', validateApiKey, reportsRoutes);
+app.use('/api/reflections', validateApiKey, reflectionsRoutes);
+app.use('/internal', validateApiKey, internalRoutes);
 
 // Default route
 app.get('/', (req, res) => {
@@ -132,8 +133,8 @@ app.get('/', (req, res) => {
       reflections: '/api/reflections',
       internal: '/internal'
     }
-  })
-})
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -141,86 +142,86 @@ app.use('*', (req, res) => {
     error: 'Endpoint not found',
     message: `The endpoint ${req.method} ${req.originalUrl} does not exist`,
     timestamp: new Date().toISOString()
-  })
-})
+  });
+});
 
 // Error handling middleware
 app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error('Unhandled error:', error)
+  logger.error('Unhandled error:', error);
   
   res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
     timestamp: new Date().toISOString()
-  })
-})
+  });
+});
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
-  logger.info(`Received ${signal}. Starting graceful shutdown...`)
+  logger.info(`Received ${signal}. Starting graceful shutdown...`);
   
   try {
     // Stop trading runner
-    await tradingRunner.stopRunner()
+    await tradingRunner.stopRunner();
     
     // Close database connections
-    await DatabaseManager.close()
+    await DatabaseManager.close();
     
-    logger.info('Graceful shutdown completed')
-    process.exit(0)
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
   } catch (error) {
-    logger.error('Error during shutdown:', error)
-    process.exit(1)
+    logger.error('Error during shutdown:', error);
+    process.exit(1);
   }
-}
+};
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
-process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Start server
 const startServer = async () => {
   try {
     // Initialize database
-    logger.info('Initializing database connection...')
-    await DatabaseManager.initialize()
+    logger.info('Initializing database connection...');
+    await DatabaseManager.initialize();
     
     // Start server
     app.listen(PORT, () => {
-      logger.info(`🚀 Elysian Trading System started`)
-      logger.info(`📡 Server running on port ${PORT}`)
-      logger.info(`🌍 Environment: ${process.env.NODE_ENV}`)
-      logger.info(`💰 Live Trading: ${process.env.ELYSIAN_LIVE === 'true' ? 'ENABLED' : 'PAPER MODE'}`)
+      logger.info(`🚀 Elysian Trading System started`);
+      logger.info(`📡 Server running on port ${PORT}`);
+      logger.info(`🌍 Environment: ${process.env.NODE_ENV}`);
+      logger.info(`💰 Live Trading: ${process.env.ELYSIAN_LIVE === 'true' ? 'ENABLED' : 'PAPER MODE'}`);
       
       // Auto-start trading runner if configured
       if (process.env.AUTO_START_RUNNER === 'true') {
         setTimeout(async () => {
           try {
-            logger.info('Auto-starting trading runner...')
-            await tradingRunner.startRunner()
+            logger.info('Auto-starting trading runner...');
+            await tradingRunner.startRunner();
           } catch (error) {
-            logger.error('Failed to auto-start trading runner:', error)
+            logger.error('Failed to auto-start trading runner:', error);
           }
-        }, 5000)
+        }, 5000);
       }
-    })
+    });
     
   } catch (error) {
-    logger.error('Failed to start server:', error)
-    process.exit(1)
+    logger.error('Failed to start server:', error);
+    process.exit(1);
   }
-}
+};
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception:', error)
-  process.exit(1)
-})
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason)
-  process.exit(1)
-})
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
 
-startServer()
+startServer();
 
-export default app
+export default app;

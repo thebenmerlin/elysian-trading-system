@@ -1,10 +1,9 @@
 /**
  * Elysian Trading System - Portfolio API Routes
  */
-
 import { Router } from 'express';
-import { logger } from '@/utils/logger';
-import { portfolioManager } from '@/portfolio';
+import { logger } from '../../utils/logger';
+import { portfolioManager } from '../../portfolio';
 
 const router = Router();
 
@@ -12,23 +11,24 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const snapshot = await portfolioManager.getLatestPortfolioSnapshot();
-
+    
     if (!snapshot) {
       return res.status(404).json({
-        error: 'No portfolio data found'
+        error: 'No portfolio data found',
+        timestamp: new Date().toISOString()
       });
     }
-
+    
     res.json({
       data: snapshot,
       timestamp: new Date().toISOString()
     });
-
   } catch (error) {
     logger.error('Failed to get portfolio snapshot:', error);
     res.status(500).json({
       error: 'Failed to retrieve portfolio data',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -37,15 +37,16 @@ router.get('/', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
-
+    
     if (days < 1 || days > 365) {
       return res.status(400).json({
-        error: 'Days parameter must be between 1 and 365'
+        error: 'Days parameter must be between 1 and 365',
+        timestamp: new Date().toISOString()
       });
     }
-
+    
     const history = await portfolioManager.getPortfolioHistory(days);
-
+    
     res.json({
       data: history,
       period: {
@@ -54,12 +55,12 @@ router.get('/history', async (req, res) => {
       },
       timestamp: new Date().toISOString()
     });
-
   } catch (error) {
     logger.error('Failed to get portfolio history:', error);
     res.status(500).json({
       error: 'Failed to retrieve portfolio history',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
     });
   }
 });
@@ -68,13 +69,14 @@ router.get('/history', async (req, res) => {
 router.get('/metrics', async (req, res) => {
   try {
     const snapshot = await portfolioManager.getLatestPortfolioSnapshot();
-
+    
     if (!snapshot) {
       return res.status(404).json({
-        error: 'No portfolio data found'
+        error: 'No portfolio data found',
+        timestamp: new Date().toISOString()
       });
     }
-
+    
     res.json({
       data: {
         current_value: snapshot.total_value,
@@ -86,12 +88,12 @@ router.get('/metrics', async (req, res) => {
       },
       timestamp: new Date().toISOString()
     });
-
   } catch (error) {
     logger.error('Failed to get portfolio metrics:', error);
     res.status(500).json({
       error: 'Failed to retrieve portfolio metrics',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
     });
   }
 });

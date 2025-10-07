@@ -1,30 +1,84 @@
 /**
  * Elysian Trading System - Reflections API Routes
  */
-
 import { Router } from 'express';
-import { logger } from '@/utils/logger';
-import { reflectionEngine } from '@/reflection';
+import { logger } from '../../utils/logger';
+import { reflectionEngine } from '../../reflection';
+import { DatabaseManager } from '../../utils/database';
 
 const router = Router();
 
-// Get latest reflections
-router.get('/', async (req, res) => {
+// Get latest reflection
+router.get('/latest', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 10;
-    const reflections = await reflectionEngine.getLatestReflections(limit);
-
+    const query = `
+      SELECT * FROM reflections 
+      ORDER BY timestamp DESC 
+      LIMIT 1
+    `;
+    
+    const result = await DatabaseManager.query(query);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'No reflections found',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const row = result.rows[0];
+    const reflection = {
+      id: row.id,
+      timestamp: new Date(row.timestamp),
+      period_start: new Date(row.period_start),
+      period_end: new Date(row.period_end),
+      performance_summary: JSON.parse(row.performance_summary || '{}'),
+      key_insights: row.key_insights || [],
+      mistakes_identified: JSON.parse(row.mistakes_identified || '{}'),
+      successful_patterns: JSON.parse(row.successful_patterns || '{}'),
+      recommended_adjustments: JSON.parse(row.recommended_adjustments || '{}'),
+      confidence_score: parseFloat(row.confidence_score || '0')
+    };
+    
     res.json({
-      data: reflections,
-      count: reflections.length,
+      data: reflection,
       timestamp: new Date().toISOString()
     });
-
   } catch (error) {
-    logger.error('Failed to get reflections:', error);
+    logger.error('Failed to get latest reflection:', error);
     res.status(500).json({
-      error: 'Failed to retrieve reflections',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Failed to retrieve latest reflection',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Generate new reflection
+router.post('/generate', async (req, res) => {
+  try {
+    const days = parseInt(req.body.days) || 7;
+    
+    if (days < 1 || days > 365) {
+      return res.status(400).json({
+        error: 'Days must be between 1 and 365',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    const reflection = await reflectionEngine.generateReflection(days);
+    
+    res.json({
+      data: reflection,
+      message: 'Reflection generated successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Failed to generate reflection:', error);
+    res.status(500).json({
+      error: 'Failed to generate reflection',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
     });
   }
 });
