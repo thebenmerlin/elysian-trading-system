@@ -1,6 +1,3 @@
-/// <reference types="node" />
-
-import * as process from 'process';
 import winston from 'winston';
 
 const logLevel = process.env.LOG_LEVEL || 'info';

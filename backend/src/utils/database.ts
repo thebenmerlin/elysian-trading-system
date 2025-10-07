@@ -1,6 +1,3 @@
-/// <reference types="node" />
-
-import * as process from 'process';
 import { Pool } from 'pg';
 import { logger } from './logger';
 

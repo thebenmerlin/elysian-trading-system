@@ -88,7 +88,9 @@ class PortfolioManager {
 
   async createPortfolioSnapshot(): Promise<PortfolioSnapshot> {
     try {
+      // Around line 91, replace:
       const initialCash = parseFloat(process.env.INITIAL_CASH || '100000');
+
 
       
       // Get previous snapshot for comparison

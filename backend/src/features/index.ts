@@ -2,10 +2,13 @@
  * Elysian Trading System - Features Engine
  * Technical indicators and feature computation
  */
-
-import { logger } from '@/utils/logger';
-import { DatabaseManager } from '@/utils/database';
-import { MarketData } from '@/data_ingestor';
+/**
+ * Elysian Trading System - Features Engine
+ * Technical indicators and feature computation
+ */
+import { logger } from '../utils/logger';
+import { DatabaseManager } from '../utils/database';
+import { MarketData } from '../data_ingestor';
 import { SMA, EMA, RSI, MACD, BollingerBands } from 'technicalindicators';
 
 export interface FeatureSet {

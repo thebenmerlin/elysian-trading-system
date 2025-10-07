@@ -1,11 +1,8 @@
-/// <reference types="node" />
-
 /**
  * Elysian Trading System - Main Server
  * Express.js server with all API routes and middleware
  */
 
-import * as process from 'process';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -54,7 +51,7 @@ app.use(cors({
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true
 }));
-app.use(morgan('combined', { stream: { write: (message: string) => logger.info(message.trim()) } }));
+app.use(morgan('combined', { stream: { write: (message: any) => logger.info(message.trim()) } }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

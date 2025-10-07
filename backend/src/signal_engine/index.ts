@@ -3,9 +3,15 @@
  * Quantitative signal generation and ensemble methods
  */
 
-import { logger } from '@/utils/logger';
-import { DatabaseManager } from '@/utils/database';
-import { FeatureSet } from '@/features';
+/**
+ * Elysian Trading System - Signal Engine
+ * Quantitative signal generation and ensemble methods
+ */
+import { logger } from '../utils/logger';
+import { DatabaseManager } from '../utils/database';
+import { FeatureSet } from '../features';
+
+// Keep rest of the file exactly as is...
 
 export interface TradingSignal {
   id?: string;

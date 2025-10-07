@@ -1,6 +1,3 @@
-/// <reference types="node" />
-
-import * as process from 'process';
 import { logger } from './logger';
 
 interface EnvConfig {
