@@ -45,11 +45,19 @@ const limiter = rateLimit({
 
 // Global middleware
 app.use(helmet());
+// Update the CORS configuration around line 45
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? [process.env.FRONTEND_URL || 'https://elysian-frontend.vercel.app']
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true
+  origin: [
+    // Production URLs
+    'https://elysian-trading-system.vercel.app',
+    'https://your-custom-domain.com', // Add your custom domain if you have one
+    // Development URLs  
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-elysian-key', 'Authorization']
 }));
 app.use(morgan('combined', { stream: { write: (message: any) => logger.info(message.trim()) } }));
 app.use(express.json({ limit: '10mb' }));
@@ -89,6 +97,45 @@ app.use((req: any, res: any, next: any) => {
   });
   next();
 });
+
+// Add this BEFORE your other routes (around line 80)
+app.get('/debug/config', (req: any, res: any) => {
+  res.json({
+    status: 'debug',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    database_connected: !!process.env.DATABASE_URL,
+    frontend_url: process.env.FRONTEND_URL,
+    api_key_set: !!process.env.ELYSIAN_API_KEY,
+    cors_origins: [
+      process.env.FRONTEND_URL || 'https://elysian-trading-system.vercel.app',
+      'http://localhost:3000'
+    ]
+  });
+});
+
+// Update your health endpoint to be more informative
+app.get('/health', async (req: any, res: any) => {
+  try {
+    const dbHealthy = await DatabaseManager.healthCheck();
+    res.json({
+      status: dbHealthy ? 'healthy' : 'degraded',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV,
+      database: dbHealthy ? 'connected' : 'disconnected',
+      cors_configured: true
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 
 // Health check route (no auth required)
 app.get('/health', async (req: any, res: any) => {
