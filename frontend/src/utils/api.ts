@@ -1,5 +1,5 @@
 /**
- * Elysian Trading System - API Utilities (BULLETPROOF VERSION)
+ * Elysian Trading System - API Utilities (COMPLETE WORKING VERSION)
  */
 import axios from 'axios'
 
@@ -14,7 +14,7 @@ console.log('🔧 API Configuration Initialized:', {
   TIMESTAMP: new Date().toISOString()
 });
 
-// Create axios instance with bulletproof configuration
+// Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
@@ -30,10 +30,6 @@ api.interceptors.request.use(
     console.log('📡 API Request:', {
       url: `${config.baseURL}${config.url}`,
       method: config.method?.toUpperCase(),
-      headers: {
-        'x-elysian-key': config.headers['x-elysian-key'] ? 
-          `${config.headers['x-elysian-key'].substring(0,4)}...` : 'NONE'
-      },
       timestamp: new Date().toISOString()
     });
     return config;
@@ -44,13 +40,12 @@ api.interceptors.request.use(
   }
 );
 
-// Bulletproof response interceptor
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
     console.log('✅ API Success:', {
       url: response.config.url,
       status: response.status,
-      data_keys: response.data ? Object.keys(response.data) : [],
       timestamp: new Date().toISOString()
     });
     return response;
@@ -60,11 +55,9 @@ api.interceptors.response.use(
       url: error.config?.url,
       status: error.response?.status,
       error_message: error.response?.data?.message || error.message,
-      response_data: error.response?.data,
       timestamp: new Date().toISOString()
     });
     
-    // Return a safe error structure
     return Promise.reject({
       ...error,
       safeData: {
@@ -77,64 +70,92 @@ api.interceptors.response.use(
   }
 );
 
-// Bulletproof API client with safe defaults
+// Complete API client with all methods
 export const apiClient = {
-  // Portfolio endpoints with safe defaults
-  // Portfolio endpoints with correct response handling
-portfolio: {
-  getCurrent: async () => {
-    try {
-      const response = await api.get('/api/portfolio');
-      console.log('✅ Portfolio API Response:', response.data);
-      
-      // The backend returns: { data: {...}, timestamp: "..." }
-      // We need to restructure it for the frontend
-      const portfolioData = response.data.data; // Extract the nested data
-      
-      return {
-        data: {
-          total_value: portfolioData.total_value || 100000,
-          cash: portfolioData.cash_balance || portfolioData.cash || 100000,
-          positions_value: portfolioData.invested_amount || 0,
-          daily_pnl: portfolioData.daily_pnl || 0,
-          total_pnl: portfolioData.total_pnl || 0,
-          positions: portfolioData.positions || [],
-          metrics: {
-            total_return_pct: portfolioData.metrics?.total_return_pct || 0,
-            sharpe_ratio: portfolioData.metrics?.sharpe_ratio || 0,
-            max_drawdown_pct: portfolioData.metrics?.max_drawdown_pct || 0,
-            win_rate: portfolioData.metrics?.win_rate || 0
-          }
-        },
-        timestamp: response.data.timestamp || new Date().toISOString()
-      };
-    } catch (error: any) {
-      console.error('Portfolio API failed:', error);
-      return {
-        data: {
-          total_value: 100000,
-          cash: 100000,
-          positions_value: 0,
-          daily_pnl: 0,
-          total_pnl: 0,
-          positions: [],
-          metrics: {
-            total_return_pct: 0,
-            sharpe_ratio: 0,
-            max_drawdown_pct: 0,
-            win_rate: 0
-          }
-        },
-        error: true,
-        message: error.safeData?.message || 'Failed to fetch portfolio',
-        timestamp: new Date().toISOString()
-      };
+  // Portfolio endpoints
+  portfolio: {
+    getCurrent: async () => {
+      try {
+        const response = await api.get('/api/portfolio');
+        console.log('✅ Portfolio API Response:', response.data);
+        
+        const portfolioData = response.data.data;
+        
+        return {
+          data: {
+            total_value: portfolioData.total_value || 100000,
+            cash: portfolioData.cash_balance || portfolioData.cash || 100000,
+            positions_value: portfolioData.invested_amount || 0,
+            daily_pnl: portfolioData.daily_pnl || 0,
+            total_pnl: portfolioData.total_pnl || 0,
+            positions: portfolioData.positions || [],
+            metrics: {
+              total_return_pct: portfolioData.metrics?.total_return_pct || 0,
+              sharpe_ratio: portfolioData.metrics?.sharpe_ratio || 0,
+              max_drawdown_pct: portfolioData.metrics?.max_drawdown_pct || 0,
+              win_rate: portfolioData.metrics?.win_rate || 0
+            }
+          },
+          timestamp: response.data.timestamp || new Date().toISOString()
+        };
+      } catch (error: any) {
+        console.error('Portfolio API failed:', error);
+        return {
+          data: {
+            total_value: 100000,
+            cash: 100000,
+            positions_value: 0,
+            daily_pnl: 0,
+            total_pnl: 0,
+            positions: [],
+            metrics: {
+              total_return_pct: 0,
+              sharpe_ratio: 0,
+              max_drawdown_pct: 0,
+              win_rate: 0
+            }
+          },
+          error: true,
+          message: error.safeData?.message || 'Failed to fetch portfolio',
+          timestamp: new Date().toISOString()
+        };
+      }
+    },
+    getHistory: async (days: number = 30) => {
+      try {
+        const response = await api.get(`/api/portfolio/history?days=${days}`);
+        return { data: response.data || [] };
+      } catch (error) {
+        return { data: [], error: true };
+      }
+    },
+    getMetrics: async () => {
+      try {
+        const response = await api.get('/api/portfolio/metrics');
+        return { data: response.data || {} };
+      } catch (error) {
+        return { data: {}, error: true };
+      }
+    },
+    getPositions: async () => {
+      try {
+        const response = await api.get('/api/portfolio/positions');
+        return { data: response.data || [] };
+      } catch (error) {
+        return { data: [], error: true };
+      }
+    },
+    createSnapshot: async () => {
+      try {
+        const response = await api.post('/api/portfolio/snapshot');
+        return { data: response.data };
+      } catch (error) {
+        return { data: null, error: true };
+      }
     }
   },
-  // ... rest of portfolio methods stay the same
-},
 
-  // Trades endpoints with safe defaults
+  // Trades endpoints
   trades: {
     getRecent: async (limit: number = 50) => {
       try {
@@ -158,11 +179,63 @@ portfolio: {
       } catch (error) {
         return { data: {}, error: true };
       }
+    },
+    getById: async (id: string) => {
+      try {
+        const response = await api.get(`/api/trades/${id}`);
+        return { data: response.data };
+      } catch (error) {
+        return { data: null, error: true };
+      }
     }
   },
 
-  // Reflections endpoints with safe defaults
+  // Reports endpoints
+  reports: {
+    getLatest: async () => {
+      try {
+        const response = await api.get('/api/reports/latest');
+        return { data: response.data };
+      } catch (error) {
+        return { data: null, error: true };
+      }
+    },
+    getHistory: async (limit: number = 10) => {
+      try {
+        const response = await api.get(`/api/reports/history?limit=${limit}`);
+        return { data: response.data || [] };
+      } catch (error) {
+        return { data: [], error: true };
+      }
+    },
+    generate: async (days: number = 30) => {
+      try {
+        const response = await api.post('/api/reports/generate', { days });
+        return { data: response.data };
+      } catch (error: any) {
+        throw new Error(error.safeData?.message || 'Failed to generate report');
+      }
+    },
+    getById: async (id: string) => {
+      try {
+        const response = await api.get(`/api/reports/${id}`);
+        return { data: response.data };
+      } catch (error) {
+        return { data: null, error: true };
+      }
+    }
+  },
+
+  // Reflections endpoints
   reflections: {
+    getAll: async (limit: number = 10) => {
+      try {
+        const response = await api.get(`/api/reflections?limit=${limit}`);
+        return { data: response.data || [] };
+      } catch (error) {
+        return { data: [], error: true };
+      }
+    },
     getLatest: async () => {
       try {
         const response = await api.get('/api/reflections/latest');
@@ -175,48 +248,60 @@ portfolio: {
           error: true 
         };
       }
+    },
+    generate: async (days: number = 7) => {
+      try {
+        const response = await api.post('/api/reflections/generate', { days });
+        return { data: response.data };
+      } catch (error: any) {
+        throw new Error(error.safeData?.message || 'Failed to generate reflection');
+      }
+    },
+    getById: async (id: string) => {
+      try {
+        const response = await api.get(`/api/reflections/${id}`);
+        return { data: response.data };
+      } catch (error) {
+        return { data: null, error: true };
+      }
     }
   },
 
-  // System endpoints with safe defaults
+  // System endpoints - COMPLETE IMPLEMENTATION
   system: {
-    // System endpoints with correct response handling  
-system: {
-  getHealth: async () => {
-    try {
-      const response = await api.get('/health');
-      console.log('✅ Health API Response:', response.data);
-      
-      return { 
-        data: {
-          status: response.data?.status || 'unknown',
-          database: response.data?.database || 'unknown', 
-          timestamp: response.data?.timestamp || new Date().toISOString(),
-          components: {
-            database: response.data?.database || 'unknown',
-            trading_runner: { 
-              status: response.data?.runner_status || 'unknown' 
+    getHealth: async () => {
+      try {
+        const response = await api.get('/health');
+        console.log('✅ Health API Response:', response.data);
+        
+        return { 
+          data: {
+            status: response.data?.status || 'unknown',
+            database: response.data?.database || 'unknown', 
+            timestamp: response.data?.timestamp || new Date().toISOString(),
+            components: {
+              database: response.data?.database || 'unknown',
+              trading_runner: { 
+                status: response.data?.runner_status || 'unknown' 
+              }
             }
           }
-        }
-      };
-    } catch (error) {
-      console.error('Health API failed:', error);
-      return { 
-        data: {
-          status: 'unhealthy',
-          database: 'disconnected',
-          components: {
+        };
+      } catch (error) {
+        console.error('Health API failed:', error);
+        return { 
+          data: {
+            status: 'unhealthy',
             database: 'disconnected',
-            trading_runner: { status: 'unknown' }
-          },
-          error: true
-        }
-      };
-    }
-  },
-  // ... rest of system methods stay the same
-},
+            components: {
+              database: 'disconnected',
+              trading_runner: { status: 'unknown' }
+            },
+            error: true
+          }
+        };
+      }
+    },
     getRunnerStatus: async () => {
       try {
         const response = await api.get('/internal/runner/status');
@@ -236,6 +321,14 @@ system: {
           },
           error: true
         };
+      }
+    },
+    getRunnerHistory: async (limit: number = 20) => {
+      try {
+        const response = await api.get(`/internal/runner/history?limit=${limit}`);
+        return { data: response.data || [] };
+      } catch (error) {
+        return { data: [], error: true };
       }
     },
     startRunner: async () => {
@@ -261,11 +354,19 @@ system: {
       } catch (error: any) {
         throw new Error(error.safeData?.message || 'Failed to run cycle');
       }
+    },
+    updateConfig: async (config: any) => {
+      try {
+        const response = await api.put('/internal/runner/config', config);
+        return { data: response.data };
+      } catch (error: any) {
+        throw new Error(error.safeData?.message || 'Failed to update config');
+      }
     }
   }
 };
 
-// Bulletproof helper functions with null safety
+// Helper functions with null safety
 export const formatCurrency = (amount: number | null | undefined): string => {
   if (amount === null || amount === undefined || isNaN(amount)) {
     return '$0.00';
@@ -303,6 +404,19 @@ export const formatDate = (date: string | Date | null | undefined): string => {
     });
   } catch (error) {
     return 'Invalid Date';
+  }
+}
+
+export const formatTime = (date: string | Date | null | undefined): string => {
+  if (!date) return 'N/A';
+  try {
+    return new Date(date).toLocaleString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch (error) {
+    return 'Invalid Time';
   }
 }
 
