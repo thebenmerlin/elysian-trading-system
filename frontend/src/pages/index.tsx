@@ -163,10 +163,10 @@ export default function Dashboard() {
         >
           <div>
             <h1 className="text-3xl font-bold tracking-wider">
-              ELYSIAN TRADING SYSTEM
+              PROJECT ELYSIAN
             </h1>
             <p className="text-terminal-muted mt-1">
-              Autonomous AI-Powered Hedge Fund Simulator
+              BY GAJANAN BARVE
             </p>
           </div>
           
