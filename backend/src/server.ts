@@ -56,21 +56,47 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/', limiter);
 app.use('/internal/', limiter);
 
-// API key validation middleware
+// API key validation middleware (FIXED VERSION)
 const validateApiKey = (req: any, res: any, next: any) => {
   const apiKey = req.headers['x-elysian-key'] || req.query.api_key;
   const validKey = process.env.ELYSIAN_API_KEY || 'elysian-demo-key';
   
+  console.log('🔑 API Key Validation:', {
+    received: apiKey ? `${apiKey.substring(0,4)}...` : 'NONE',
+    expected: validKey ? `${validKey.substring(0,4)}...` : 'NONE',
+    match: apiKey === validKey,
+    timestamp: new Date().toISOString()
+  });
+  
+  if (!apiKey) {
+    return res.status(401).json({
+      error: 'Missing API key',
+      message: 'Please provide x-elysian-key header or api_key query parameter',
+      timestamp: new Date().toISOString()
+    });
+  }
+  
   if (apiKey !== validKey) {
     return res.status(401).json({
       error: 'Invalid API key',
-      message: 'Please provide a valid x-elysian-key header',
+      message: 'API key does not match expected value',
+      received_key: apiKey ? `${apiKey.substring(0,4)}...` : 'NONE',
       timestamp: new Date().toISOString()
     });
   }
   
   next();
 };
+
+// Add test endpoint for debugging (add this after the debug endpoint)
+app.get('/test-auth', validateApiKey, (req: any, res: any) => {
+  res.json({
+    message: 'Authentication successful',
+    timestamp: new Date().toISOString(),
+    authenticated: true
+  });
+});
+
 
 // Health check route (no auth required)
 app.get('/health', async (req: any, res: any) => {
