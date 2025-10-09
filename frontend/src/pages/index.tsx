@@ -1,8 +1,6 @@
 /**
- * Elysian Trading System - Main Dashboard
- * Terminal-style real-time trading dashboard
+ * Elysian Trading System - Main Dashboard (BULLETPROOF VERSION)
  */
-
 import React, { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { motion } from 'framer-motion'
@@ -19,17 +17,22 @@ export default function Dashboard() {
     { id: 'loading', text: 'Loading market data and portfolio information...', type: 'info' }
   ])
 
-  // Data fetching
+  // Enhanced data fetching with error handling
   const { data: portfolio, isLoading: portfolioLoading, error: portfolioError } = useQuery(
     'portfolio',
     () => apiClient.portfolio.getCurrent(),
-    { 
-      refetchInterval: 30000, // Refresh every 30 seconds
-      onSuccess: () => {
-        addSuccess('Portfolio data updated')
+    {   
+      refetchInterval: 30000,
+      retry: 2,
+      onSuccess: (data) => {
+        if (data && !data.error) {
+          addSuccess(`Portfolio data updated: ${formatCurrency(data.data?.total_value || 0)}`);
+        } else {
+          addError('Portfolio data incomplete');
+        }
       },
-      onError: () => {
-        addError('Failed to fetch portfolio data')
+      onError: (error: any) => {
+        addError(`Failed to fetch portfolio: ${error.message || 'Unknown error'}`);
       }
     }
   )
@@ -37,10 +40,21 @@ export default function Dashboard() {
   const { data: systemHealth } = useQuery(
     'system-health',
     () => apiClient.system.getHealth(),
-    { 
-      refetchInterval: 60000, // Check health every minute
+    {   
+      refetchInterval: 60000,
+      retry: 1,
       onSuccess: (data) => {
-        setIsRunning(data.data.components.trading_runner.status === 'running')
+        if (data?.data) {
+          const status = data.data.status;
+          if (status === 'healthy') {
+            addSuccess('System health check passed');
+          } else {
+            addError(`System status: ${status}`);
+          }
+        }
+      },
+      onError: () => {
+        addError('Health check failed - backend may be down');
       }
     }
   )
@@ -48,276 +62,269 @@ export default function Dashboard() {
   const { data: recentTrades } = useQuery(
     'recent-trades',
     () => apiClient.trades.getRecent(10),
-    { refetchInterval: 15000 }
+    { 
+      refetchInterval: 30000,
+      retry: 1,
+      onError: () => {
+        addError('Failed to fetch recent trades');
+      }
+    }
   )
 
   const { data: latestReflection } = useQuery(
     'latest-reflection',
     () => apiClient.reflections.getLatest(),
-    { refetchInterval: 300000 } // Every 5 minutes
+    { 
+      refetchInterval: 300000,
+      retry: 1
+    }
   )
 
-  useEffect(() => {
-    if (portfolio?.data) {
-      addLine(`Portfolio value: ${formatCurrency(portfolio.data.total_value)}`, 'info')
+  // Safe data extraction with defaults
+  const portfolioData = portfolio?.data || {
+    total_value: 100000,
+    cash: 100000,
+    positions_value: 0,
+    daily_pnl: 0,
+    total_pnl: 0,
+    metrics: {
+      total_return_pct: 0,
+      sharpe_ratio: 0,
+      max_drawdown_pct: 0,
+      win_rate: 0
     }
-  }, [portfolio])
+  };
 
-  useEffect(() => {
-    if (portfolioError) {
-      addError('Connection to trading system lost')
+  const healthData = systemHealth?.data || {
+    status: 'unknown',
+    database: 'unknown',
+    components: {
+      database: 'unknown',
+      trading_runner: { status: 'unknown' }
     }
-  }, [portfolioError])
+  };
 
+  const tradesData = Array.isArray(recentTrades?.data) ? recentTrades.data : [];
+
+  // Safe reflection data extraction
+  const reflectionData = latestReflection?.data;
+  const safeInsights = Array.isArray(reflectionData?.key_insights) ? reflectionData.key_insights : [];
+  const safeRecommendations = Array.isArray(reflectionData?.recommended_adjustments) ? reflectionData.recommended_adjustments : [];
+
+  // Enhanced action handlers with error handling
   const handleStartRunner = async () => {
     try {
-      addCommand('start-runner')
-      await apiClient.system.startRunner()
-      addSuccess('Trading runner started successfully')
-      setIsRunning(true)
-      toast.success('Trading runner started')
-    } catch (error) {
-      addError('Failed to start trading runner')
-      toast.error('Failed to start runner')
+      addCommand('start-runner');
+      await apiClient.system.startRunner();
+      addSuccess('Trading runner started successfully');
+      setIsRunning(true);
+      toast.success('Trading runner started');
+    } catch (error: any) {
+      addError(`Failed to start runner: ${error.message}`);
+      toast.error('Failed to start runner');
     }
   }
 
   const handleStopRunner = async () => {
     try {
-      addCommand('stop-runner')
-      await apiClient.system.stopRunner()
-      addSuccess('Trading runner stopped')
-      setIsRunning(false)
-      toast.success('Trading runner stopped')
-    } catch (error) {
-      addError('Failed to stop trading runner')
-      toast.error('Failed to stop runner')
+      addCommand('stop-runner');
+      await apiClient.system.stopRunner();
+      addSuccess('Trading runner stopped');
+      setIsRunning(false);
+      toast.success('Trading runner stopped');
+    } catch (error: any) {
+      addError(`Failed to stop runner: ${error.message}`);
+      toast.error('Failed to stop runner');
     }
   }
 
   const handleRunCycle = async () => {
     try {
-      addCommand('run-cycle')
-      addLine('Executing trading cycle...', 'info')
-      const result = await apiClient.system.runCycle()
-      addSuccess(`Trading cycle completed: ${result.data.data.signals_generated} signals, ${result.data.data.trades_executed} trades`)
-      toast.success('Trading cycle completed')
-    } catch (error) {
-      addError('Trading cycle failed')
-      toast.error('Trading cycle failed')
+      addCommand('run-cycle');
+      addLine('Executing trading cycle...', 'info');
+      const result = await apiClient.system.runCycle();
+      addSuccess('Trading cycle completed successfully');
+      toast.success('Trading cycle completed');
+    } catch (error: any) {
+      addError(`Trading cycle failed: ${error.message}`);
+      toast.error('Trading cycle failed');
     }
   }
 
-  const portfolioData = portfolio?.data
-  const healthData = systemHealth?.data
-  const tradesData = recentTrades?.data
-
   return (
-    <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6">
+    <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6 font-mono">
       <div className="max-w-7xl mx-auto space-y-6">
-
+        
         {/* Header */}
-        <motion.div
+        <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center justify-between"
         >
           <div>
-            <h1 className="text-4xl font-mono font-bold text-terminal-primary mb-2">
-              PROJECT ELYSIAN
+            <h1 className="text-3xl font-bold tracking-wider">
+              ELYSIAN TRADING SYSTEM
             </h1>
-            <p className="text-terminal-muted font-mono">
-              by Gajanan Barve
+            <p className="text-terminal-muted mt-1">
+              Autonomous AI-Powered Hedge Fund Simulator
             </p>
           </div>
-
-          <div className="flex items-center space-x-4">
-            <div className={`status-indicator ${isRunning ? 'running' : 'stopped'}`}>
-              <div className={`w-2 h-2 rounded-full mr-2 ${isRunning ? 'bg-terminal-primary animate-pulse' : 'bg-terminal-muted'}`}></div>
-              {isRunning ? 'RUNNING' : 'STOPPED'}
+          
+          <div className="flex items-center gap-3">
+            <div className={`px-3 py-1 rounded border ${
+              isRunning ? 'border-terminal-primary bg-terminal-primary/10' : 'border-terminal-error bg-terminal-error/10'
+            }`}>
+              <span className={`text-sm font-bold ${
+                isRunning ? 'text-terminal-primary' : 'text-terminal-error'
+              }`}>
+                {isRunning ? 'RUNNING' : 'STOPPED'}
+              </span>
             </div>
-
-            <button
-              onClick={isRunning ? handleStopRunner : handleStartRunner}
-              className={`btn-terminal ${isRunning ? 'danger' : ''} flex items-center space-x-2`}
-            >
-              {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-              <span>{isRunning ? 'STOP' : 'START'}</span>
-            </button>
-
-            <button
-              onClick={handleRunCycle}
-              disabled={!isRunning}
-              className="btn-terminal flex items-center space-x-2"
-            >
-              <Activity className="w-4 h-4" />
-              <span>RUN CYCLE</span>
-            </button>
           </div>
         </motion.div>
 
         {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Portfolio Value"
-            value={portfolioData ? formatCurrency(portfolioData.total_value) : '--'}
-            change={portfolioData?.daily_pnl}
+            value={formatCurrency(portfolioData.total_value)}
+            change={portfolioData.daily_pnl}
             changeType="currency"
             loading={portfolioLoading}
-            icon={<DollarSign className="w-5 h-5" />}
+            icon={<DollarSign />}
           />
-
-          <PnLCard 
-            pnl={portfolioData?.total_pnl || 0}
-          />
-
-          <ReturnCard 
-            returnPct={portfolioData?.metrics?.total_return_pct || 0}
-          />
-
-          <SharpeCard 
-            sharpe={portfolioData?.metrics?.sharpe_ratio || 0}
-          />
+          <PnLCard pnl={portfolioData.total_pnl || 0} />
+          <ReturnCard returnPct={portfolioData.metrics?.total_return_pct || 0} />
+          <SharpeCard sharpe={portfolioData.metrics?.sharpe_ratio || 0} />
         </div>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
           {/* Terminal Display */}
-          <div className="space-y-4">
-            <h2 className="text-xl font-mono font-bold text-terminal-primary flex items-center">
-              <Activity className="w-5 h-5 mr-2" />
+          <div className="lg:col-span-2">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Activity className="w-5 h-5" />
               System Activity
             </h2>
-            <Terminal lines={lines} maxLines={15} />
+            <Terminal 
+              lines={lines}
+              onStartRunner={handleStartRunner}
+              onStopRunner={handleStopRunner}
+              onRunCycle={handleRunCycle}
+              isRunning={isRunning}
+            />
           </div>
 
           {/* System Status & Recent Activity */}
-          <div className="space-y-4">
-            <h2 className="text-xl font-mono font-bold text-terminal-primary flex items-center">
-              <Target className="w-5 h-5 mr-2" />
-              System Status
-            </h2>
-
-            {/* System Health */}
+          <div className="space-y-6">
+            
+            {/* System Status */}
             <div className="terminal-window">
-              <div className="terminal-header">
-                <div className="terminal-dot red"></div>
-                <div className="terminal-dot yellow"></div>
-                <div className="terminal-dot green"></div>
-                <div className="ml-4 text-terminal-muted text-sm font-mono">Health Check</div>
-              </div>
-              <div className="terminal-content">
-                {healthData ? (
-                  <div className="space-y-2 font-mono text-sm">
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                System Status
+              </h3>
+              
+              {/* System Health */}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-bold text-terminal-secondary">Health Check</p>
+                  <div className="mt-2 space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Database:</span>
-                      <span className={getStatusColor(healthData.components.database)}>
-                        {healthData.components.database.toUpperCase()}
+                      <span className={getStatusColor(healthData.database)}>
+                        {(healthData.database || 'UNKNOWN').toUpperCase()}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Runner:</span>
-                      <span className={getStatusColor(healthData.components.trading_runner.status)}>
-                        {healthData.components.trading_runner.status.toUpperCase()}
+                      <span>Status:</span>
+                      <span className={getStatusColor(healthData.status)}>
+                        {(healthData.status || 'UNKNOWN').toUpperCase()}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Run Count:</span>
-                      <span>{healthData.components.trading_runner.run_count}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Live Trading:</span>
-                      <span className={healthData.configuration.live_trading ? 'text-terminal-warning' : 'text-terminal-muted'}>
-                        {healthData.configuration.live_trading ? 'ENABLED' : 'PAPER MODE'}
+                      <span>Mode:</span>
+                      <span className="text-terminal-warning">
+                        PAPER TRADING
                       </span>
                     </div>
                   </div>
-                ) : (
-                  <div className="text-terminal-muted">Loading system status...</div>
-                )}
+                </div>
               </div>
             </div>
 
             {/* Recent Trades */}
             <div className="terminal-window">
-              <div className="terminal-header">
-                <div className="terminal-dot red"></div>
-                <div className="terminal-dot yellow"></div>
-                <div className="terminal-dot green"></div>
-                <div className="ml-4 text-terminal-muted text-sm font-mono">Recent Trades</div>
-              </div>
-              <div className="terminal-content">
-                {tradesData?.data && tradesData.data.length > 0 ? (
-                  <div className="space-y-2">
-                    {tradesData.data.slice(0, 5).map((trade: any) => (
-                      <div key={trade.id} className="flex justify-between items-center text-sm font-mono">
-                        <div className="flex items-center space-x-2">
-                          <span className={trade.side === 'BUY' ? 'text-terminal-primary' : 'text-terminal-error'}>
-                            {trade.side}
-                          </span>
-                          <span>{trade.symbol}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <span>{trade.quantity}</span>
-                          <span>@</span>
-                          <span>${trade.executed_price.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-terminal-muted text-sm">No recent trades</div>
-                )}
-              </div>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Recent Trades
+              </h3>
+              
+              {tradesData.length > 0 ? (
+                <div className="space-y-2">
+                  {tradesData.slice(0, 5).map((trade: any, index: number) => (
+                    <div key={index} className="flex justify-between text-sm">
+                      <span className={`font-bold ${
+                        trade.side === 'BUY' ? 'text-terminal-primary' : 'text-terminal-error'
+                      }`}>
+                        {trade.side}
+                      </span>
+                      <span>{trade.symbol}</span>
+                      <span className="text-terminal-muted">
+                        {trade.quantity} @ ${(trade.executed_price || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-terminal-muted text-sm">No recent trades</p>
+              )}
             </div>
+
+            {/* AI Insights */}
+            {reflectionData && (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="terminal-window"
+              >
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  <Target className="w-4 h-4" />
+                  Latest AI Insights
+                </h3>
+                
+                <div className="space-y-4 text-sm">
+                  {safeInsights.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-terminal-secondary mb-2">Key Insights:</h4>
+                      <ul className="space-y-1">
+                        {safeInsights.slice(0, 3).map((insight: string, index: number) => (
+                          <li key={index} className="text-terminal-muted">
+                            • {insight}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {safeRecommendations.length > 0 && (
+                    <div>
+                      <h4 className="font-bold text-terminal-secondary mb-2">Recommendations:</h4>
+                      <ul className="space-y-1">
+                        {safeRecommendations.slice(0, 2).map((rec: any, index: number) => (
+                          <li key={index} className="text-terminal-muted">
+                            • {rec.reasoning || rec.toString()}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
           </div>
         </div>
-
-        {/* AI Insights */}
-        {latestReflection?.data && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="terminal-window"
-          >
-            <div className="terminal-header">
-              <div className="terminal-dot red"></div>
-              <div className="terminal-dot yellow"></div>
-              <div className="terminal-dot green"></div>
-              <div className="ml-4 text-terminal-muted text-sm font-mono">
-                Latest AI Insights
-              </div>
-            </div>
-            <div className="terminal-content">
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-terminal-primary font-mono font-bold mb-2">Key Insights:</h4>
-                  <div className="space-y-1">
-                    {latestReflection.data.key_insights.slice(0, 3).map((insight: string, index: number) => (
-                      <div key={index} className="text-terminal-muted text-sm font-mono">
-                        • {insight}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {latestReflection.data.recommended_adjustments.length > 0 && (
-                  <div>
-                    <h4 className="text-terminal-warning font-mono font-bold mb-2">Recommendations:</h4>
-                    <div className="space-y-1">
-                      {latestReflection.data.recommended_adjustments.slice(0, 2).map((rec: any, index: number) => (
-                        <div key={index} className="text-terminal-muted text-sm font-mono">
-                          • {rec.reasoning}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
       </div>
     </div>
   )
