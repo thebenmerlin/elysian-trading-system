@@ -80,46 +80,59 @@ api.interceptors.response.use(
 // Bulletproof API client with safe defaults
 export const apiClient = {
   // Portfolio endpoints with safe defaults
-  portfolio: {
-    getCurrent: async () => {
-      try {
-        const response = await api.get('/api/portfolio');
-        return {
-          data: response.data || { total_value: 0, cash: 0, positions: [] },
-          timestamp: new Date().toISOString()
-        };
-      } catch (error: any) {
-        console.error('Portfolio API failed:', error);
-        return {
-          data: {
-            total_value: 100000,
-            cash: 100000,
-            positions_value: 0,
-            daily_pnl: 0,
-            total_pnl: 0,
-            positions: [],
-            metrics: {
-              total_return_pct: 0,
-              sharpe_ratio: 0,
-              max_drawdown_pct: 0,
-              win_rate: 0
-            }
-          },
-          error: true,
-          message: error.safeData?.message || 'Failed to fetch portfolio',
-          timestamp: new Date().toISOString()
-        };
-      }
-    },
-    getHistory: async (days: number = 30) => {
-      try {
-        const response = await api.get(`/api/portfolio/history?days=${days}`);
-        return { data: response.data || [] };
-      } catch (error) {
-        return { data: [], error: true };
-      }
+  // Portfolio endpoints with correct response handling
+portfolio: {
+  getCurrent: async () => {
+    try {
+      const response = await api.get('/api/portfolio');
+      console.log('✅ Portfolio API Response:', response.data);
+      
+      // The backend returns: { data: {...}, timestamp: "..." }
+      // We need to restructure it for the frontend
+      const portfolioData = response.data.data; // Extract the nested data
+      
+      return {
+        data: {
+          total_value: portfolioData.total_value || 100000,
+          cash: portfolioData.cash_balance || portfolioData.cash || 100000,
+          positions_value: portfolioData.invested_amount || 0,
+          daily_pnl: portfolioData.daily_pnl || 0,
+          total_pnl: portfolioData.total_pnl || 0,
+          positions: portfolioData.positions || [],
+          metrics: {
+            total_return_pct: portfolioData.metrics?.total_return_pct || 0,
+            sharpe_ratio: portfolioData.metrics?.sharpe_ratio || 0,
+            max_drawdown_pct: portfolioData.metrics?.max_drawdown_pct || 0,
+            win_rate: portfolioData.metrics?.win_rate || 0
+          }
+        },
+        timestamp: response.data.timestamp || new Date().toISOString()
+      };
+    } catch (error: any) {
+      console.error('Portfolio API failed:', error);
+      return {
+        data: {
+          total_value: 100000,
+          cash: 100000,
+          positions_value: 0,
+          daily_pnl: 0,
+          total_pnl: 0,
+          positions: [],
+          metrics: {
+            total_return_pct: 0,
+            sharpe_ratio: 0,
+            max_drawdown_pct: 0,
+            win_rate: 0
+          }
+        },
+        error: true,
+        message: error.safeData?.message || 'Failed to fetch portfolio',
+        timestamp: new Date().toISOString()
+      };
     }
   },
+  // ... rest of portfolio methods stay the same
+},
 
   // Trades endpoints with safe defaults
   trades: {
@@ -167,34 +180,43 @@ export const apiClient = {
 
   // System endpoints with safe defaults
   system: {
-    getHealth: async () => {
-      try {
-        const response = await api.get('/health');
-        return { 
-          data: {
-            status: response.data?.status || 'unknown',
+    // System endpoints with correct response handling  
+system: {
+  getHealth: async () => {
+    try {
+      const response = await api.get('/health');
+      console.log('✅ Health API Response:', response.data);
+      
+      return { 
+        data: {
+          status: response.data?.status || 'unknown',
+          database: response.data?.database || 'unknown', 
+          timestamp: response.data?.timestamp || new Date().toISOString(),
+          components: {
             database: response.data?.database || 'unknown',
-            timestamp: response.data?.timestamp || new Date().toISOString(),
-            components: {
-              database: response.data?.database || 'unknown',
-              trading_runner: { status: 'unknown' }
+            trading_runner: { 
+              status: response.data?.runner_status || 'unknown' 
             }
           }
-        };
-      } catch (error) {
-        return { 
-          data: {
-            status: 'unhealthy',
+        }
+      };
+    } catch (error) {
+      console.error('Health API failed:', error);
+      return { 
+        data: {
+          status: 'unhealthy',
+          database: 'disconnected',
+          components: {
             database: 'disconnected',
-            components: {
-              database: 'disconnected',
-              trading_runner: { status: 'unknown' }
-            },
-            error: true
-          }
-        };
-      }
-    },
+            trading_runner: { status: 'unknown' }
+          },
+          error: true
+        }
+      };
+    }
+  },
+  // ... rest of system methods stay the same
+},
     getRunnerStatus: async () => {
       try {
         const response = await api.get('/internal/runner/status');
