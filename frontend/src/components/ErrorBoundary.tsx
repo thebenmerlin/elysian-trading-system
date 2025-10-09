@@ -1,8 +1,6 @@
 /**
- * Elysian Trading System - Error Boundary Component
- * Catches JavaScript errors in the component tree and displays a fallback UI
+ * Elysian Trading System - Enhanced Error Boundary Component
  */
-
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 
 interface Props {
@@ -12,6 +10,7 @@ interface Props {
 interface State {
   hasError: boolean
   error?: Error
+  errorInfo?: ErrorInfo
 }
 
 export class ErrorBoundary extends Component<Props, State> {
@@ -20,73 +19,81 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public static getDerivedStateFromError(error: Error): State {
-    // Update state so the next render will show the fallback UI
     return { hasError: true, error }
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Elysian Error Boundary caught an error:', error, errorInfo)
-    
-    // You can log the error to an error reporting service here
-    // Example: logErrorToService(error, errorInfo)
+    console.error('🚨 Error Boundary caught an error:', {
+      error: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  private handleRestart = () => {
+    this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+    window.location.reload();
+  }
+
+  private handleHome = () => {
+    window.location.href = '/';
   }
 
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-terminal-bg flex items-center justify-center p-6">
-          <div className="terminal-window max-w-2xl w-full">
-            <div className="terminal-header">
-              <div className="terminal-dot red"></div>
-              <div className="terminal-dot yellow"></div>
-              <div className="terminal-dot green"></div>
-              <div className="ml-4 text-terminal-muted text-sm font-mono">
-                System Error
+        <div className="min-h-screen bg-terminal-bg text-terminal-primary p-8 font-mono">
+          <div className="max-w-4xl mx-auto">
+            <div className="border border-terminal-error p-6 rounded-lg">
+              <h1 className="text-2xl font-bold text-terminal-error mb-4">
+                🚨 SYSTEM FAULT DETECTED
+              </h1>
+              
+              <div className="mb-6">
+                <p className="text-terminal-muted mb-2">
+                  The Elysian Trading System has encountered an unexpected error.
+                </p>
+                
+                <div className="bg-black p-4 rounded border border-terminal-border">
+                  <p className="text-terminal-error font-bold">Error Details:</p>
+                  <p className="text-terminal-muted break-all">
+                    {this.state.error?.message || 'Unknown system error'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mb-6">
+                <button
+                  onClick={this.handleRestart}
+                  className="px-6 py-2 bg-terminal-primary text-black font-bold rounded hover:bg-terminal-secondary transition-colors"
+                >
+                  🔄 RESTART SYSTEM
+                </button>
+                
+                <button
+                  onClick={this.handleHome}
+                  className="px-6 py-2 bg-terminal-secondary text-black font-bold rounded hover:bg-terminal-primary transition-colors"
+                >
+                  🏠 HOME TERMINAL
+                </button>
+              </div>
+
+              <div className="text-sm text-terminal-muted">
+                <p className="font-bold mb-2">If this error persists, please check:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Backend API connectivity</li>
+                  <li>Network connection</li>
+                  <li>Browser console for details</li>
+                  <li>Environment variables configuration</li>
+                </ul>
               </div>
             </div>
-            
-            <div className="terminal-content">
-              <div className="space-y-4">
-                <div className="text-center">
-                  <div className="text-terminal-error text-2xl font-mono font-bold mb-4">
-                    ⚠️ SYSTEM FAULT DETECTED
-                  </div>
-                  
-                  <div className="text-terminal-muted mb-6">
-                    The Elysian Trading System has encountered an unexpected error.
-                  </div>
-                </div>
 
-                <div className="bg-terminal-border bg-opacity-20 rounded p-4 text-sm font-mono">
-                  <div className="text-terminal-warning mb-2">Error Details:</div>
-                  <div className="text-terminal-muted break-all">
-                    {this.state.error?.message || 'Unknown system error'}
-                  </div>
-                </div>
-
-                <div className="space-y-2 text-center">
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="btn-terminal mr-4"
-                  >
-                    🔄 RESTART SYSTEM
-                  </button>
-                  
-                  <button
-                    onClick={() => window.location.href = '/'}
-                    className="btn-terminal"
-                  >
-                    🏠 HOME TERMINAL
-                  </button>
-                </div>
-
-                <div className="text-center text-terminal-muted text-xs mt-6">
-                  <div>If this error persists, please check:</div>
-                  <div>• Backend API connectivity</div>
-                  <div>• Network connection</div>
-                  <div>• Browser console for details</div>
-                </div>
-              </div>
+            <div className="mt-6 text-xs text-terminal-muted">
+              <p>Error occurred at: {new Date().toISOString()}</p>
+              <p>Frontend: https://elysian-trading-system.vercel.app</p>
+              <p>Backend: https://elysian-backend-bd3o.onrender.com</p>
             </div>
           </div>
         </div>
@@ -94,14 +101,6 @@ export class ErrorBoundary extends Component<Props, State> {
     }
 
     return this.props.children
-  }
-}
-
-// Functional Error Boundary Hook (Alternative approach)
-export function useErrorHandler() {
-  return (error: Error, errorInfo: ErrorInfo) => {
-    console.error('Error caught by error handler:', error, errorInfo)
-    // Handle error reporting here
   }
 }
 
