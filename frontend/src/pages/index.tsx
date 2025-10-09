@@ -1,5 +1,5 @@
 /**
- * Elysian Trading System - Main Dashboard (BULLETPROOF VERSION)
+ * Elysian Trading System - Main Dashboard (FIXED VERSION)
  */
 import React, { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast'
 import Terminal, { useTerminalLines } from '@/components/Terminal'
 import MetricCard, { PnLCard, ReturnCard, SharpeCard, DrawdownCard } from '@/components/MetricCard'
 import { apiClient, formatCurrency, formatPercentage, getStatusColor } from '@/utils/api'
-import { Activity, TrendingUp, DollarSign, Target, Settings, Play, Square } from 'lucide-react'
+import { Activity, TrendingUp, DollarSign, Target, Settings, Play, Square, RotateCcw } from 'lucide-react'
 
 export default function Dashboard() {
   const [isRunning, setIsRunning] = useState(false)
@@ -201,19 +201,52 @@ export default function Dashboard() {
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Terminal Display */}
+          {/* Terminal Display with Controls */}
           <div className="lg:col-span-2">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Activity className="w-5 h-5" />
               System Activity
             </h2>
-            <Terminal 
-              lines={lines}
-              onStartRunner={handleStartRunner}
-              onStopRunner={handleStopRunner}
-              onRunCycle={handleRunCycle}
-              isRunning={isRunning}
-            />
+            
+            {/* Trading Controls */}
+            <div className="mb-4 flex gap-3">
+              <button
+                onClick={handleStartRunner}
+                disabled={isRunning}
+                className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors ${
+                  isRunning 
+                    ? 'bg-terminal-muted text-terminal-bg opacity-50 cursor-not-allowed'
+                    : 'bg-terminal-primary text-terminal-bg hover:bg-terminal-secondary'
+                }`}
+              >
+                <Play className="w-4 h-4" />
+                START
+              </button>
+              
+              <button
+                onClick={handleStopRunner}
+                disabled={!isRunning}
+                className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors ${
+                  !isRunning 
+                    ? 'bg-terminal-muted text-terminal-bg opacity-50 cursor-not-allowed'
+                    : 'bg-terminal-error text-white hover:bg-red-600'
+                }`}
+              >
+                <Square className="w-4 h-4" />
+                STOP
+              </button>
+              
+              <button
+                onClick={handleRunCycle}
+                className="px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors bg-terminal-secondary text-terminal-bg hover:bg-terminal-warning"
+              >
+                <RotateCcw className="w-4 h-4" />
+                RUN CYCLE
+              </button>
+            </div>
+            
+            {/* Terminal Component (without props that don't exist) */}
+            <Terminal lines={lines} />
           </div>
 
           {/* System Status & Recent Activity */}
