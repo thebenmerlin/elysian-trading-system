@@ -343,26 +343,38 @@ const startServer = async () => {
     // Initialize database connection
     logger.info('Initializing database connection...');
     await DatabaseManager.initialize();
-    
+
+    // CRITICAL FIX: Add auto-start logic
+    if (process.env.AUTO_START_RUNNER === 'true') {
+      logger.info('🚀 Auto-starting trading runner...');
+      // Import trading runner
+      const { tradingRunner } = await import('./runner');
+      
+      // Start runner after 10 second delay
+      setTimeout(async () => {
+        try {
+          await tradingRunner.startRunner();
+          logger.info('✅ Trading runner auto-started successfully');
+        } catch (error) {
+          logger.error('❌ Failed to auto-start runner:', error);
+        }
+      }, 10000);
+    }
+
     // Start server
     app.listen(PORT, () => {
       logger.info(`🚀 Elysian Trading System started`);
       logger.info(`📡 Server running on port ${PORT}`);
       logger.info(`🌍 Environment: ${process.env.NODE_ENV}`);
       logger.info(`💰 Live Trading: ${process.env.ELYSIAN_LIVE === 'true' ? 'ENABLED' : 'PAPER MODE'}`);
+      logger.info(`🤖 Auto-start: ${process.env.AUTO_START_RUNNER === 'true' ? 'ENABLED' : 'DISABLED'}`);
     });
-    
+
   } catch (error) {
-    logger.error('Failed to start server:', error);
-    // Don't exit, just log the error and continue
-    logger.warn('Continuing without database connection...');
-    
-    app.listen(PORT, () => {
-      logger.info(`🚀 Elysian Trading System started (database connection failed)`);
-      logger.info(`📡 Server running on port ${PORT}`);
-    });
+    // ... existing error handling
   }
 };
+
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error: any) => {
