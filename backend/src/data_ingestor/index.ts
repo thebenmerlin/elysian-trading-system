@@ -1,6 +1,6 @@
 /**
- * Elysian Trading System - Data Ingestor
- * Real market data fetching with Yahoo Finance integration
+ * Elysian Trading System - Data Ingestor (DEFENSIVE VERSION)
+ * Real market data fetching with database-agnostic queries
  */
 import axios from 'axios';
 import { logger } from '../utils/logger';
@@ -20,33 +20,35 @@ export interface MarketData {
 class DataIngestor {
   private requestCount: number = 0;
   private lastRequestTime: number = 0;
-  private readonly RATE_LIMIT_MS = 1000; // 1 request per second
+  private readonly RATE_LIMIT_MS = 1000;
 
   async fetchMarketData(symbols: string[]): Promise<MarketData[]> {
     const marketData: MarketData[] = [];
     
     for (const symbol of symbols) {
       try {
-        // Rate limiting
         await this.enforceRateLimit();
         
         const data = await this.fetchYahooFinanceData(symbol);
         if (data) {
           marketData.push(data);
-          await this.storeMarketData(data);
-          logger.debug(`✅ Fetched and stored data for ${symbol}: $${data.close.toFixed(2)}`);
+          try {
+            await this.storeMarketData(data);
+            logger.debug(`✅ Fetched and stored data for ${symbol}: $${data.close.toFixed(2)}`);
+          } catch (storeError) {
+            logger.warn(`⚠️ Failed to store data for ${symbol}, continuing with in-memory data:`, storeError.message);
+            // Continue with the data even if storage fails
+          }
         }
       } catch (error) {
         logger.error(`Failed to fetch data for ${symbol}:`, error);
         
-        // Try to get fallback data
         const fallbackData = await this.getFallbackData(symbol);
         if (fallbackData) {
           marketData.push(fallbackData);
         }
       }
       
-      // Small delay between requests
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     
@@ -69,7 +71,6 @@ class DataIngestor {
 
   private async fetchYahooFinanceData(symbol: string): Promise<MarketData | null> {
     try {
-      // Multiple Yahoo Finance endpoints for redundancy
       const endpoints = [
         `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`,
         `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`,
@@ -93,7 +94,7 @@ class DataIngestor {
             timeout: 10000,
             validateStatus: (status) => status === 200
           });
-          break; // Success, exit loop
+          break;
         } catch (endpointError) {
           logger.debug(`Endpoint ${endpoint} failed, trying next...`);
           continue;
@@ -110,7 +111,6 @@ class DataIngestor {
         return null;
       }
 
-      // Extract the latest data point
       const timestamps = result.timestamp;
       const quotes = result.indicators?.quote?.[0];
       
@@ -119,11 +119,9 @@ class DataIngestor {
         return null;
       }
 
-      // Get the most recent data (last element)
       const latestIndex = timestamps.length - 1;
       const timestamp = timestamps[latestIndex];
       
-      // Validate data
       const open = quotes.open?.[latestIndex];
       const high = quotes.high?.[latestIndex];
       const low = quotes.low?.[latestIndex];
@@ -146,7 +144,6 @@ class DataIngestor {
         provider: 'yahoo'
       };
 
-      // Data quality checks
       if (marketData.high < marketData.low) {
         logger.warn(`Invalid OHLC data for ${symbol}: High < Low`);
         return null;
@@ -173,7 +170,6 @@ class DataIngestor {
 
   private async getFallbackData(symbol: string): Promise<MarketData | null> {
     try {
-      // Try to get the most recent data from our database
       const query = `
         SELECT * FROM market_data 
         WHERE symbol = $1 
@@ -187,8 +183,7 @@ class DataIngestor {
         const row = result.rows[0];
         const lastPrice = parseFloat(row.close);
         
-        // Generate realistic price based on last known price
-        const change = (Math.random() - 0.5) * 0.02; // ±2% max change
+        const change = (Math.random() - 0.5) * 0.02;
         const newPrice = lastPrice * (1 + change);
         
         logger.info(`📈 Using fallback data for ${symbol}: $${newPrice.toFixed(2)} (based on last known: $${lastPrice.toFixed(2)})`);
@@ -205,7 +200,6 @@ class DataIngestor {
         };
       }
       
-      // Last resort: generate mock data
       return this.generateMockData(symbol);
       
     } catch (error) {
@@ -215,7 +209,6 @@ class DataIngestor {
   }
 
   private generateMockData(symbol: string): MarketData {
-    // Generate realistic mock data based on symbol
     const basePrices: { [key: string]: number } = {
       'AAPL': 175,
       'MSFT': 330,
@@ -227,7 +220,7 @@ class DataIngestor {
     };
     
     const basePrice = basePrices[symbol] || (100 + Math.random() * 200);
-    const volatility = 0.02; // 2% daily volatility
+    const volatility = 0.02;
     const change = (Math.random() - 0.5) * 2 * volatility;
     
     const close = basePrice * (1 + change);
@@ -251,17 +244,43 @@ class DataIngestor {
 
   private async storeMarketData(data: MarketData): Promise<void> {
     try {
-      const query = `
-        INSERT INTO market_data (symbol, timestamp, open, high, low, close, volume, provider)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (symbol, timestamp, provider) DO UPDATE SET
-          open = EXCLUDED.open,
-          high = EXCLUDED.high,
-          low = EXCLUDED.low,
-          close = EXCLUDED.close,
-          volume = EXCLUDED.volume,
-          updated_at = NOW()
-      `;
+      // First, check what columns exist in the table
+      const columnCheck = await DatabaseManager.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'market_data' 
+          AND column_name IN ('updated_at', 'created_at')
+      `);
+      
+      const hasUpdatedAt = columnCheck.rows.some(row => row.column_name === 'updated_at');
+      
+      let query;
+      if (hasUpdatedAt) {
+        // Use the full query with updated_at
+        query = `
+          INSERT INTO market_data (symbol, timestamp, open, high, low, close, volume, provider)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (symbol, timestamp, provider) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume,
+            updated_at = NOW()
+        `;
+      } else {
+        // Use simpler query without updated_at
+        query = `
+          INSERT INTO market_data (symbol, timestamp, open, high, low, close, volume, provider)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (symbol, timestamp, provider) DO UPDATE SET
+            open = EXCLUDED.open,
+            high = EXCLUDED.high,
+            low = EXCLUDED.low,
+            close = EXCLUDED.close,
+            volume = EXCLUDED.volume
+        `;
+      }
       
       await DatabaseManager.query(query, [
         data.symbol,
@@ -307,7 +326,6 @@ class DataIngestor {
 
   async healthCheck(): Promise<{ status: string; details: any }> {
     try {
-      // Test with a reliable symbol
       const testData = await this.fetchYahooFinanceData('AAPL');
       const dbHealthy = await DatabaseManager.healthCheck();
       
