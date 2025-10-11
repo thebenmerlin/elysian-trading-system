@@ -1,8 +1,7 @@
 /**
- * Elysian Trading System - Main Server
- * Express.js server with all API routes and middleware
+ * Elysian Trading System - Main Server (Dual-Market)
+ * Express.js server with all API routes, middleware, and crypto endpoints
  */
-
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -47,7 +46,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-elysian-key', 'Authorization']
 }));
-
 app.use(morgan('combined', { stream: { write: (message: any) => logger.info(message.trim()) } }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -56,18 +54,18 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/', limiter);
 app.use('/internal/', limiter);
 
-// API key validation middleware (FIXED VERSION)
+// API key validation middleware
 const validateApiKey = (req: any, res: any, next: any) => {
   const apiKey = req.headers['x-elysian-key'] || req.query.api_key;
   const validKey = process.env.ELYSIAN_API_KEY || 'elysian-demo-key';
-  
+
   console.log('🔑 API Key Validation:', {
     received: apiKey ? `${apiKey.substring(0,4)}...` : 'NONE',
     expected: validKey ? `${validKey.substring(0,4)}...` : 'NONE',
     match: apiKey === validKey,
     timestamp: new Date().toISOString()
   });
-  
+
   if (!apiKey) {
     return res.status(401).json({
       error: 'Missing API key',
@@ -75,7 +73,6 @@ const validateApiKey = (req: any, res: any, next: any) => {
       timestamp: new Date().toISOString()
     });
   }
-  
   if (apiKey !== validKey) {
     return res.status(401).json({
       error: 'Invalid API key',
@@ -84,12 +81,11 @@ const validateApiKey = (req: any, res: any, next: any) => {
       timestamp: new Date().toISOString()
     });
   }
-  
   next();
 };
 
-// Add test endpoint for debugging (add this after the debug endpoint)
-app.get('/test-auth', validateApiKey, (req: any, res: any) => {
+// Test endpoint for debugging
+app.get('/test-auth', validateApiKey, (_req, res) => {
   res.json({
     message: 'Authentication successful',
     timestamp: new Date().toISOString(),
@@ -97,15 +93,14 @@ app.get('/test-auth', validateApiKey, (req: any, res: any) => {
   });
 });
 
-
-// Health check route (no auth required)
-app.get('/health', async (req: any, res: any) => {
+// Health check route (no auth)
+app.get('/health', async (_req, res) => {
   try {
     const dbHealthy = await DatabaseManager.healthCheck();
     res.json({
       status: dbHealthy ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
-      version: '1.0.0',
+      version: '2.0.0',
       uptime: process.uptime(),
       database: dbHealthy ? 'connected' : 'disconnected',
       environment: process.env.NODE_ENV || 'development'
@@ -114,14 +109,14 @@ app.get('/health', async (req: any, res: any) => {
     logger.error('Health check failed:', error);
     res.status(500).json({
       status: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error.message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// Debug endpoint for troubleshooting
-app.get('/debug', (req: any, res: any) => {
+// Debug endpoint
+app.get('/debug', (_req, res) => {
   res.json({
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
@@ -129,21 +124,23 @@ app.get('/debug', (req: any, res: any) => {
     api_key_set: !!process.env.ELYSIAN_API_KEY,
     routes_available: [
       'GET /health',
-      'GET /debug', 
+      'GET /debug',
       'GET /api/portfolio',
+      'GET /api/crypto/latest',
+      'GET /api/market/status',
       'GET /internal/runner/status'
     ]
   });
 });
 
-// PORTFOLIO ROUTES (Direct implementation to fix 404 error)
-app.get('/api/portfolio', validateApiKey, async (req: any, res: any) => {
+// PORTFOLIO ROUTE
+app.get('/api/portfolio', validateApiKey, async (_req, res) => {
   try {
     logger.info('Portfolio endpoint called');
-    
-    // Create default portfolio if none exists
     const defaultPortfolio = {
       total_value: 100000,
+      equity_value: 50000,
+      crypto_value: 50000,
       cash_balance: 100000,
       invested_amount: 0,
       daily_pnl: 0,
@@ -157,179 +154,175 @@ app.get('/api/portfolio', validateApiKey, async (req: any, res: any) => {
         win_rate: 0
       }
     };
-
-    res.json({
-      data: defaultPortfolio,
-      timestamp: new Date().toISOString()
-    });
-    
+    res.json({ data: defaultPortfolio, timestamp: new Date().toISOString() });
   } catch (error) {
     logger.error('Portfolio endpoint error:', error);
     res.status(500).json({
       error: 'Failed to fetch portfolio',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: (error as Error).message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// TRADES ROUTES
-app.get('/api/trades', validateApiKey, async (req: any, res: any) => {
+// CRYPTO LATEST DATA
+app.get('/api/crypto/latest', validateApiKey, async (_req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 50;
-    
-    // Return empty trades array for now
-    res.json({
-      data: [],
-      total_count: 0,
-      limit: limit,
-      timestamp: new Date().toISOString()
-    });
-    
+    logger.info('Crypto latest data endpoint called');
+    const query = `
+      SELECT DISTINCT ON (symbol) 
+        symbol, timestamp, open, high, low, close, volume, provider, market_type,
+        ((close - open)/open)*100 AS change_24h
+      FROM market_data
+      WHERE market_type = 'crypto'
+        AND timestamp >= NOW() - INTERVAL '24 hours'
+      ORDER BY symbol, timestamp DESC
+      LIMIT 10`;
+    const result = await DatabaseManager.query(query);
+    const cryptoData = result.rows.map((row: any) => ({
+      symbol: row.symbol,
+      timestamp: row.timestamp,
+      open: parseFloat(row.open),
+      high: parseFloat(row.high),
+      low: parseFloat(row.low),
+      close: parseFloat(row.close),
+      volume: parseInt(row.volume),
+      provider: row.provider,
+      market_type: row.market_type,
+      change_24h: parseFloat(row.change_24h)
+    }));
+    res.json({ data: cryptoData, timestamp: new Date().toISOString(), count: cryptoData.length });
   } catch (error) {
-    logger.error('Trades endpoint error:', error);
+    logger.error('Crypto latest endpoint error:', error);
     res.status(500).json({
-      error: 'Failed to fetch trades',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      error: 'Failed to fetch crypto data',
+      message: (error as Error).message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }
 });
 
-// REFLECTIONS ROUTES
-app.get('/api/reflections/latest', validateApiKey, async (req: any, res: any) => {
+// MARKET STATUS
+app.get('/api/market/status', validateApiKey, async (_req, res) => {
   try {
-    // Return empty reflection for now
+    const equityOpen = await dataIngestor.isMarketOpen('equity');
     res.json({
-      data: null,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    logger.error('Reflections endpoint error:', error);
-    res.status(500).json({
-      error: 'Failed to fetch reflections',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-// INTERNAL/SYSTEM ROUTES
-app.get('/internal/runner/status', validateApiKey, async (req: any, res: any) => {
-  try {
-    const status = {
-      is_running: false,
-      run_count: 0,
-      daily_run_count: 0,
-      current_cycle: null,
-      config: {
-        tickers: ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA'],
-        run_interval_minutes: 15,
-        enable_trading: false,
-        enable_ai_analysis: true
-      }
-    };
-
-    res.json({
-      data: status,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    logger.error('Runner status endpoint error:', error);
-    res.status(500).json({
-      error: 'Failed to get runner status',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/internal/runner/start', validateApiKey, async (req: any, res: any) => {
-  try {
-    res.json({
-      data: { message: 'Runner start command received', status: 'starting' },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('Runner start endpoint error:', error);
-    res.status(500).json({
-      error: 'Failed to start runner',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/internal/runner/stop', validateApiKey, async (req: any, res: any) => {
-  try {
-    res.json({
-      data: { message: 'Runner stop command received', status: 'stopping' },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('Runner stop endpoint error:', error);
-    res.status(500).json({
-      error: 'Failed to stop runner',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/internal/runner/cycle', validateApiKey, async (req: any, res: any) => {
-  try {
-    res.json({
-      data: { 
-        message: 'Trading cycle executed', 
-        signals_generated: 0, 
-        trades_executed: 0 
+      data: {
+        equity: {
+          is_open: equityOpen,
+          market_type: 'equity',
+          trading_hours: '9:30 AM - 4:00 PM EST'
+        },
+        crypto: {
+          is_open: true,
+          market_type: 'crypto',
+          trading_hours: '24/7'
+        }
       },
       timestamp: new Date().toISOString()
     });
   } catch (error) {
+    logger.error('Market status endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to get market status',
+      message: (error as Error).message || 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// INTERNAL RUNNER STATUS
+app.get('/internal/runner/status', validateApiKey, async (_req, res) => {
+  try {
+    const status = tradingRunner.getRunnerStatus();
+    res.json({ data: status, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error('Runner status endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to get runner status',
+      message: (error as Error).message || 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// START RUNNER
+app.post('/internal/runner/start', validateApiKey, async (_req, res) => {
+  try {
+    await tradingRunner.startRunner();
+    res.json({ data: { message: 'Runner start command received', status: 'starting' }, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error('Runner start endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to start runner',
+      message: (error as Error).message || 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// STOP RUNNER
+app.post('/internal/runner/stop', validateApiKey, async (_req, res) => {
+  try {
+    await tradingRunner.stopRunner();
+    res.json({ data: { message: 'Runner stop command received', status: 'stopping' }, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error('Runner stop endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to stop runner',
+      message: (error as Error).message || 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// RUN CYCLE
+app.post('/internal/runner/cycle', validateApiKey, async (_req, res) => {
+  try {
+    const cycle = await tradingRunner.runSingleCycle();
+    res.json({ data: { message: 'Trading cycle executed', cycle }, timestamp: new Date().toISOString() });
+  } catch (error) {
     logger.error('Runner cycle endpoint error:', error);
     res.status(500).json({
       error: 'Failed to run cycle',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      message: (error as Error).message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }
 });
 
 // Default route
-app.get('/', (req: any, res: any) => {
+app.get('/', (_req, res) => {
   res.json({
-    name: 'Elysian Trading System',
-    version: '1.0.0',
+    name: 'Elysian Dual-Market Trading System',
+    version: '2.0.0',
     status: 'running',
     timestamp: new Date().toISOString(),
     endpoints: {
       health: '/health',
       debug: '/debug',
       portfolio: '/api/portfolio',
-      trades: '/api/trades',
+      crypto_latest: '/api/crypto/latest',
+      market_status: '/api/market/status',
       runner_status: '/internal/runner/status'
     }
   });
 });
 
 // 404 handler
-app.use('*', (req: any, res: any) => {
+app.use('*', (req, res) => {
   logger.warn(`404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     error: 'Endpoint not found',
     message: `The endpoint ${req.method} ${req.originalUrl} does not exist`,
-    available_routes: ['/health', '/api/portfolio', '/api/trades', '/internal/runner/status'],
+    available_routes: ['/health', '/api/portfolio', '/api/crypto/latest', '/api/market/status', '/internal/runner/status'],
     timestamp: new Date().toISOString()
   });
 });
 
 // Error handling middleware
-app.use((error: any, req: any, res: any, next: any) => {
+app.use((error: any, _req: any, res: any, _next: any) => {
   logger.error('Unhandled error:', error);
-  
   res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong',
@@ -337,20 +330,14 @@ app.use((error: any, req: any, res: any, next: any) => {
   });
 });
 
-// Start server
+// Start server with auto-start logic
 const startServer = async () => {
   try {
-    // Initialize database connection
     logger.info('Initializing database connection...');
     await DatabaseManager.initialize();
 
-    // CRITICAL FIX: Add auto-start logic
     if (process.env.AUTO_START_RUNNER === 'true') {
       logger.info('🚀 Auto-starting trading runner...');
-      // Import trading runner
-      const { tradingRunner } = await import('./runner');
-      
-      // Start runner after 10 second delay
       setTimeout(async () => {
         try {
           await tradingRunner.startRunner();
@@ -361,7 +348,6 @@ const startServer = async () => {
       }, 10000);
     }
 
-    // Start server
     app.listen(PORT, () => {
       logger.info(`🚀 Elysian Trading System started`);
       logger.info(`📡 Server running on port ${PORT}`);
@@ -371,19 +357,13 @@ const startServer = async () => {
     });
 
   } catch (error) {
-    // ... existing error handling
+    logger.error('Failed to start server:', error);
   }
 };
 
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error: any) => {
-  logger.error('Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason: any, promise: any) => {
-  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
+// Uncaught exceptions
+process.on('uncaughtException', (error: any) => logger.error('Uncaught Exception:', error));
+process.on('unhandledRejection', (reason: any, promise: any) => logger.error('Unhandled Rejection at:', promise, 'reason:', reason));
 
 startServer();
 

@@ -1,8 +1,7 @@
 /**
- * Elysian Trading System - Main Runner
- * Orchestrates the complete autonomous trading cycle
+ * Elysian Trading System - Dual-Market Trading Runner
+ * Orchestrates autonomous trading cycles for both equities and crypto
  */
-
 import { logger } from '../utils/logger';
 import { DatabaseManager } from '../utils/database';
 import { dataIngestor } from '../data_ingestor';
@@ -23,6 +22,7 @@ export interface RunnerConfig {
   reflection_frequency: number; // Every N runs
   report_frequency: number; // Every N runs
   max_daily_runs: number;
+  market_type?: 'equity' | 'crypto';
 }
 
 export interface RunCycle {
@@ -32,6 +32,7 @@ export interface RunCycle {
     'AI_ANALYSIS' | 'TRADE_EXECUTION' | 'PORTFOLIO_UPDATE' | 'REFLECTION' |   
     'REPORTING' | 'COMPLETED' | 'ERROR';
   status: 'RUNNING' | 'SUCCESS' | 'FAILED' | 'CANCELLED';
+  market_type: 'equity' | 'crypto';
   tickers_processed: string[];
   signals_generated: number;
   trades_executed: number;
@@ -53,6 +54,7 @@ export interface RunCycle {
 }
 
 export class TradingRunner {
+  // Original properties
   private config: RunnerConfig;
   private isRunning: boolean = false;
   private currentCycle: RunCycle | null = null;
@@ -61,7 +63,7 @@ export class TradingRunner {
   private lastRunDate: Date = new Date();
   private cronJob: any = null;
 
-  //Newly added properties
+  // Error recovery properties
   private errorCount: number = 0;
   private consecutiveErrors: number = 0;
   private maxErrors: number = 5;
@@ -71,24 +73,67 @@ export class TradingRunner {
   private systemHealthScore: number = 1.0;
   private emergencyMode: boolean = false;
 
-
+  // Dual-market properties
+  private equityConfig: RunnerConfig;
+  private cryptoConfig: RunnerConfig;
+  private equityJob: any = null;
+  private cryptoJob: any = null;
+  private lastEquityRun: Date = new Date();
+  private lastCryptoRun: Date = new Date();
+  private equityRunCount: number = 0;
+  private cryptoRunCount: number = 0;
 
   constructor(config?: Partial<RunnerConfig>) {
-    this.config = {
+    // Equity configuration (backward compatible)
+    this.equityConfig = {
       tickers: process.env.RUNNER_TICKERS?.split(',') || ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA'],
-      run_interval_minutes: parseInt(process.env.RUN_INTERVAL_MINUTES || '15'),
+      run_interval_minutes: parseInt(process.env.EQUITY_RUN_INTERVAL_MINUTES || process.env.RUN_INTERVAL_MINUTES || '15'),
       enable_trading: process.env.ELYSIAN_LIVE === 'true',
       enable_ai_analysis: process.env.ENABLE_AI_ANALYSIS !== 'false',
       reflection_frequency: parseInt(process.env.RUN_REFLECTION_EVERY || '12'),
       report_frequency: parseInt(process.env.RUN_REPORT_EVERY || '24'),
       max_daily_runs: parseInt(process.env.MAX_DAILY_RUNS || '96'),
+      market_type: 'equity',
       ...config
     };
+
+    // Crypto configuration
+    this.cryptoConfig = {
+      tickers: process.env.CRYPTO_TICKERS?.split(',') || ['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'DOTUSDT', 'LINKUSDT'],
+      run_interval_minutes: parseInt(process.env.CRYPTO_RUN_INTERVAL_MINUTES || '5'), // 5 minutes for crypto
+      enable_trading: process.env.ELYSIAN_LIVE === 'true',
+      enable_ai_analysis: process.env.ENABLE_AI_ANALYSIS !== 'false',
+      reflection_frequency: parseInt(process.env.CRYPTO_REFLECTION_EVERY || '24'), // Less frequent for crypto
+      report_frequency: parseInt(process.env.CRYPTO_REPORT_EVERY || '48'),
+      max_daily_runs: parseInt(process.env.CRYPTO_MAX_DAILY_RUNS || '288'), // 24h * (60/5) = 288
+      market_type: 'crypto',
+      ...config
+    };
+
+    // Use equity config as primary for backward compatibility
+    this.config = this.equityConfig;
+
+    logger.info('🏗️ Trading Runner initialized with dual-market support', {
+      equity_tickers: this.equityConfig.tickers.length,
+      crypto_tickers: this.cryptoConfig.tickers.length,
+      equity_interval: this.equityConfig.run_interval_minutes,
+      crypto_interval: this.cryptoConfig.run_interval_minutes
+    });
   }
 
+  // Main runner control methods (backward compatible)
   async startRunner(): Promise<void> {
+    return this.startDualMarketRunner();
+  }
+
+  async stopRunner(): Promise<void> {
+    return this.stopDualMarketRunner();
+  }
+
+  // Dual-market runner methods
+  async startDualMarketRunner(): Promise<void> {
     if (this.isRunning) {
-      logger.warn('Trading runner is already running');
+      logger.warn('Dual-market trading runner is already running');
       return;
     }
 
@@ -98,42 +143,54 @@ export class TradingRunner {
       
       this.isRunning = true;
       
-      logger.info('🚀 Elysian Trading Runner started', {
-        tickers: this.config.tickers,
-        interval_minutes: this.config.run_interval_minutes,
-        trading_enabled: this.config.enable_trading,
-        ai_enabled: this.config.enable_ai_analysis
+      logger.info('🚀 Elysian Dual-Market Trading Runner started', {
+        equity_tickers: this.equityConfig.tickers,
+        equity_interval: this.equityConfig.run_interval_minutes,
+        crypto_tickers: this.cryptoConfig.tickers,
+        crypto_interval: this.cryptoConfig.run_interval_minutes,
+        trading_enabled: this.equityConfig.enable_trading
       });
 
-      this.scheduleRuns();
+      // Schedule both equity and crypto runs
+      this.scheduleEquityRuns();
+      this.scheduleCryptoRuns();
 
+      // Run initial cycles if auto-start is enabled
       if (process.env.AUTO_START_RUNNER === 'true') {
-        setTimeout(() => this.runSingleCycle(), 5000);
+        setTimeout(() => this.runEquityCycle().catch(err => 
+          logger.error('Initial equity cycle failed:', err)), 10000);
+        setTimeout(() => this.runCryptoCycle().catch(err => 
+          logger.error('Initial crypto cycle failed:', err)), 15000);
       }
+
     } catch (error) {
-      logger.error('Failed to start trading runner:', error);
+      logger.error('Failed to start dual-market trading runner:', error);
       throw error;
     }
   }
 
-  async stopRunner(): Promise<void> {
+  async stopDualMarketRunner(): Promise<void> {
     if (!this.isRunning) {
-      logger.warn('Trading runner is not running');
+      logger.warn('Dual-market trading runner is not running');
       return;
     }
 
     this.isRunning = false;
 
-    // Stop cron job
-    if (this.cronJob) {
-      this.cronJob.destroy();
-      this.cronJob = null;
+    // Stop both cron jobs
+    if (this.equityJob) {
+      this.equityJob.destroy();
+      this.equityJob = null;
     }
 
-    // Wait for current cycle to complete if running
+    if (this.cryptoJob) {
+      this.cryptoJob.destroy();
+      this.cryptoJob = null;
+    }
+
+    // Wait for current cycles to complete
     if (this.currentCycle && this.currentCycle.status === 'RUNNING') {
-      logger.info('Waiting for current trading cycle to complete...');
-      // Give it up to 2 minutes to complete
+      logger.info('Waiting for current cycles to complete...');
       let waitTime = 0;
       while (this.currentCycle?.status === 'RUNNING' && waitTime < 120000) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -141,306 +198,83 @@ export class TradingRunner {
       }
     }
 
-    logger.info('🛑 Elysian Trading Runner stopped');
+    logger.info('🛑 Dual-Market Trading Runner stopped');
   }
 
-  private async handleCycleError(error: any, phase: string): Promise<void> {
-    this.errorCount++;
-    this.consecutiveErrors++;
+  // Market-specific scheduling
+  private scheduleEquityRuns(): void {
+    const cronPattern = `*/${this.equityConfig.run_interval_minutes} * * * *`;
     
-    logger.error(`🚨 Error in ${phase} (${this.consecutiveErrors}/${this.maxConsecutiveErrors} consecutive):`, {
-      error: error.message,
-      phase,
-      errorCount: this.errorCount,
-      consecutiveErrors: this.consecutiveErrors,
-      systemHealth: this.systemHealthScore
+    this.equityJob = cron.schedule(cronPattern, async () => {
+      if (this.isRunning && (!this.currentCycle || this.currentCycle.status !== 'RUNNING')) {
+        // Check if equity markets are open
+        const isOpen = await dataIngestor.isMarketOpen('equity');
+        if (isOpen) {
+          try {
+            await this.runEquityCycle();
+          } catch (error) {
+            logger.error('Scheduled equity cycle failed:', error);
+          }
+        } else {
+          logger.debug('⏰ Equity markets closed, skipping cycle');
+        }
+      }
+    }, {
+      scheduled: true,
+      timezone: 'America/New_York'
     });
 
-    // Update system health score
-    this.systemHealthScore = Math.max(0.1, this.systemHealthScore - 0.1);
-
-    // Emergency shutdown conditions
-    if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-      logger.error('🚨 MAXIMUM CONSECUTIVE ERRORS REACHED - ENTERING EMERGENCY MODE');
-      await this.enterEmergencyMode();
-      return;
-    }
-
-    if (this.errorCount >= this.maxErrors) {
-      logger.error('🚨 MAXIMUM TOTAL ERRORS REACHED - STOPPING RUNNER');
-      await this.emergencyShutdown();
-      return;
-    }
-
-    // Adaptive retry logic
-    const retryDelay = this.calculateRetryDelay(phase);
-    logger.info(`⏱ Waiting ${retryDelay/1000} seconds before retry...`);
-    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    logger.info(`📅 Equity cycles scheduled every ${this.equityConfig.run_interval_minutes} minutes (market hours only)`);
   }
 
-  private calculateRetryDelay(phase: string): number {
-    const baseDelay = 30000; // 30 seconds
-    const phaseMultipliers: { [key: string]: number } = {
-      'DATA_INGESTION': 1.0,
-      'FEATURE_COMPUTATION': 1.2,
-      'SIGNAL_GENERATION': 1.5,
-      'AI_ANALYSIS': 2.0,
-      'TRADE_EXECUTION': 0.5, // Faster retry for trading
-      'PORTFOLIO_UPDATE': 0.8
-    };
+  private scheduleCryptoRuns(): void {
+    const cronPattern = `*/${this.cryptoConfig.run_interval_minutes} * * * *`;
     
-    const multiplier = phaseMultipliers[phase] || 1.0;
-    const errorMultiplier = Math.min(this.consecutiveErrors, 5);
-    
-    return Math.min(baseDelay * multiplier * errorMultiplier, 300000); // Max 5 minutes
-  }
-
-  private async enterEmergencyMode(): Promise<void> {
-    this.emergencyMode = true;
-    logger.error('🚨 ENTERING EMERGENCY MODE - SYSTEM WILL ATTEMPT SELF-RECOVERY');
-
-    try {
-      // Reduce system load
-      this.config.run_interval_minutes = Math.max(this.config.run_interval_minutes * 2, 60);
-      this.config.tickers = this.config.tickers.slice(0, 2); // Reduce to 2 symbols
-
-      // Health check sequence
-      await this.performSystemDiagnostics();
-
-      // Wait longer before retry
-      const recoveryWait = 10 * 60 * 1000; // 10 minutes
-      logger.info(`🕐 Emergency recovery wait: ${recoveryWait/60000} minutes`);
-      await new Promise(resolve => setTimeout(resolve, recoveryWait));
-
-      // Attempt gradual recovery
-      await this.attemptGradualRecovery();
-
-    } catch (recoveryError) {
-      logger.error('🚨 Emergency recovery failed:', recoveryError);
-      await this.emergencyShutdown();
-    }
-  }
-
-  private async emergencyShutdown(): Promise<void> {
-    logger.error('🚨 EMERGENCY SHUTDOWN INITIATED');
-    
-    try {
-      // Save current state
-      await this.saveEmergencyState();
-      
-      // Stop all operations
-      this.isRunning = false;
-      if (this.cronJob) {
-        this.cronJob.destroy();
-        this.cronJob = null;
+    this.cryptoJob = cron.schedule(cronPattern, async () => {
+      if (this.isRunning && (!this.currentCycle || this.currentCycle.status !== 'RUNNING')) {
+        try {
+          await this.runCryptoCycle();
+        } catch (error) {
+          logger.error('Scheduled crypto cycle failed:', error);
+        }
       }
-      
-      // Mark current cycle as failed
-      if (this.currentCycle) {
-        this.currentCycle.status = 'FAILED';
-        this.currentCycle.phase = 'ERROR';
-        this.currentCycle.errors.push('Emergency shutdown triggered');
-        await this.storeCycleResults(this.currentCycle);
-      }
-
-      logger.error('🛑 Runner stopped due to excessive errors. Manual intervention required.');
-      
-    } catch (shutdownError) {
-      logger.error('🚨 Error during emergency shutdown:', shutdownError);
-    }
-  }
-
-  private async performSystemDiagnostics(): Promise<void> {
-    logger.info('🔍 Performing system diagnostics...');
-
-    const diagnostics = {
-      database: false,
-      dataSource: false,
-      signalEngine: false,
-      portfolioManager: false
-    };
-
-    try {
-      // Database check
-      diagnostics.database = await DatabaseManager.healthCheck();
-      logger.info(`📊 Database: ${diagnostics.database ? '✅ OK' : '❌ FAILED'}`);
-
-      // Data source check
-      const dataHealth = await dataIngestor.healthCheck();
-      diagnostics.dataSource = dataHealth.status === 'healthy';
-      logger.info(`📡 Data source: ${diagnostics.dataSource ? '✅ OK' : '❌ FAILED'}`);
-
-      // Signal engine check (try to generate signals for one symbol)
-      try {
-        const testFeatures = await featuresEngine.computeFeatures(['AAPL']);
-        const testSignals = await signalEngine.generateSignals(testFeatures);
-        diagnostics.signalEngine = testSignals.length >= 0; // Even 0 signals is OK
-        logger.info(`🎯 Signal engine: ${diagnostics.signalEngine ? '✅ OK' : '❌ FAILED'}`);
-      } catch (signalError) {
-        diagnostics.signalEngine = false;
-        logger.error('❌ Signal engine diagnostic failed:', signalError);
-      }
-
-      // Portfolio manager check
-      try {
-        const snapshot = await portfolioManager.getLatestPortfolioSnapshot();
-        diagnostics.portfolioManager = !!snapshot;
-        logger.info(`💼 Portfolio manager: ${diagnostics.portfolioManager ? '✅ OK' : '❌ FAILED'}`);
-      } catch (portfolioError) {
-        diagnostics.portfolioManager = false;
-        logger.error('❌ Portfolio manager diagnostic failed:', portfolioError);
-      }
-
-      // Calculate overall health score
-      const healthComponents = Object.values(diagnostics);
-      const healthyCount = healthComponents.filter(Boolean).length;
-      this.systemHealthScore = healthyCount / healthComponents.length;
-      
-      logger.info(`🏥 System health score: ${(this.systemHealthScore * 100).toFixed(1)}%`);
-
-    } catch (diagnosticError) {
-      logger.error('🚨 System diagnostics failed:', diagnosticError);
-      this.systemHealthScore = 0.1;
-    }
-  }
-
-  private async attemptGradualRecovery(): Promise<void> {
-    logger.info('🔄 Attempting gradual recovery...');
-
-    // Reset some error counters for recovery attempt
-    this.consecutiveErrors = Math.floor(this.consecutiveErrors / 2);
-    
-    // Start with minimal configuration
-    const recoveryConfig = {
-      ...this.config,
-      run_interval_minutes: 60, // 1 hour intervals
-      tickers: ['AAPL'], // Single, reliable symbol
-      enable_ai_analysis: false, // Disable AI temporarily
-      enable_trading: false // No trading during recovery
-    };
-
-    logger.info('🧪 Testing recovery with minimal configuration...');
-
-    try {
-      // Test a single cycle with recovery config
-      const originalConfig = this.config;
-      this.config = recoveryConfig;
-
-      await this.runMinimalCycle();
-
-      // If successful, gradually restore functionality
-      logger.info('✅ Recovery test successful - restoring functionality');
-      
-      // Restore original config gradually
-      this.config = {
-        ...originalConfig,
-        run_interval_minutes: Math.max(originalConfig.run_interval_minutes, 30),
-        tickers: originalConfig.tickers.slice(0, 3), // Start with 3 symbols
-        enable_ai_analysis: this.systemHealthScore > 0.7,
-        enable_trading: false // Keep trading disabled until fully recovered
-      };
-
-      this.emergencyMode = false;
-      this.consecutiveErrors = 0;
-      this.systemHealthScore = Math.min(this.systemHealthScore + 0.3, 1.0);
-
-      logger.info('🎉 Gradual recovery completed successfully');
-
-    } catch (recoveryError) {
-      logger.error('❌ Gradual recovery failed:', recoveryError);
-      throw recoveryError;
-    }
-  }
-
-  private async runMinimalCycle(): Promise<void> {
-    logger.info('🧪 Running minimal recovery cycle...');
-
-    try {
-      // Just test data ingestion and basic processing
-      const marketData = await dataIngestor.fetchMarketData(['AAPL']);
-      if (marketData.length === 0) {
-        throw new Error('No market data received');
-      }
-
-      const features = await featuresEngine.computeFeatures(['AAPL']);
-      if (features.length === 0) {
-        throw new Error('No features computed');
-      }
-
-      logger.info('✅ Minimal cycle completed successfully');
-
-    } catch (error) {
-      logger.error('❌ Minimal cycle failed:', error);
-      throw error;
-    }
-  }
-
-  private async saveEmergencyState(): Promise<void> {
-    try {
-      const emergencyState = {
-        timestamp: new Date().toISOString(),
-        errorCount: this.errorCount,
-        consecutiveErrors: this.consecutiveErrors,
-        lastSuccessfulRun: this.lastSuccessfulRun.toISOString(),
-        systemHealthScore: this.systemHealthScore,
-        currentCycle: this.currentCycle,
-        config: this.config
-      };
-
-      // Save to database or file system
-      await DatabaseManager.query(
-        `INSERT INTO runner_cycles (id, timestamp, phase, status, errors, results) 
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          `emergency_${Date.now()}`,
-          new Date(),
-          'EMERGENCY_SHUTDOWN',
-          'FAILED',
-          JSON.stringify(['Emergency shutdown due to excessive errors']),
-          JSON.stringify(emergencyState)
-        ]
-      );
-
-      logger.info('💾 Emergency state saved successfully');
-
-    } catch (saveError) {
-      logger.error('❌ Failed to save emergency state:', saveError);
-    }
-  }
-
-  private resetErrorCounters(): void {
-    this.errorCount = Math.floor(this.errorCount / 2); // Reduce but don't reset completely
-    this.consecutiveErrors = 0;
-    this.lastSuccessfulRun = new Date();
-    this.systemHealthScore = Math.min(this.systemHealthScore + 0.1, 1.0);
-    this.emergencyMode = false;
-
-    logger.info('✅ Error counters reset after successful cycle', {
-      errorCount: this.errorCount,
-      systemHealth: this.systemHealthScore
+    }, {
+      scheduled: true,
+      timezone: 'UTC' // Crypto is 24/7 UTC
     });
+
+    logger.info(`📅 Crypto cycles scheduled every ${this.cryptoConfig.run_interval_minutes} minutes (24/7)`);
   }
 
+  // Market-specific cycle execution
+  async runEquityCycle(): Promise<RunCycle> {
+    logger.info('📈 Starting EQUITY trading cycle');
+    this.lastEquityRun = new Date();
+    
+    const result = await this.runMarketSpecificCycle('equity');
+    this.equityRunCount++;
+    return result;
+  }
 
-  async runSingleCycle(): Promise<RunCycle> {
-    if (this.currentCycle && this.currentCycle.status === 'RUNNING') {
-      throw new Error('Another trading cycle is currently running');
-    }
+  async runCryptoCycle(): Promise<RunCycle> {
+    logger.info('🪙 Starting CRYPTO trading cycle');
+    this.lastCryptoRun = new Date();
+    
+    const result = await this.runMarketSpecificCycle('crypto');
+    this.cryptoRunCount++;
+    return result;
+  }
 
-    // Check daily run limits
-    this.checkDailyLimits();
-
-    // Emergency mode check
-    if (this.emergencyMode) {
-      throw new Error('System is in emergency mode - manual intervention required');
-    }
-
-    const cycleId = `cycle_${Date.now()}`;
+  private async runMarketSpecificCycle(marketType: 'equity' | 'crypto'): Promise<RunCycle> {
+    const cycleId = `${marketType}_cycle_${Date.now()}`;
+    const config = marketType === 'equity' ? this.equityConfig : this.cryptoConfig;
+    
     this.currentCycle = {
       id: cycleId,
       timestamp: new Date(),
       phase: 'STARTING',
       status: 'RUNNING',
+      market_type: marketType,
       tickers_processed: [],
       signals_generated: 0,
       trades_executed: 0,
@@ -464,71 +298,53 @@ export class TradingRunner {
     const startTime = Date.now();
 
     try {
-      logger.info(`🔄 Starting trading cycle: ${cycleId}`, {
-        tickers: this.config.tickers,
-        run_count: this.runCount + 1,
-        system_health: this.systemHealthScore,
-        emergency_mode: this.emergencyMode
+      logger.info(`🔄 Starting ${marketType} trading cycle: ${cycleId}`, {
+        tickers: config.tickers,
+        market_type: marketType,
+        system_health: this.systemHealthScore
       });
 
-      // Phase 1: Data Ingestion (with error recovery)
-      try {
-        await this.runDataIngestionPhase();
-      } catch (error) {
-        await this.handleCycleError(error, 'DATA_INGESTION');
-        // Try once more with fallback
-        logger.info('🔄 Retrying data ingestion with fallback methods...');
-        await this.runDataIngestionPhase();
-      }
+      // Phase 1: Market-specific data ingestion
+      await this.runMarketDataIngestion(marketType, config.tickers);
 
-      // Phase 2: Feature Computation (with error recovery)
-      try {
-        await this.runFeatureComputationPhase();
-      } catch (error) {
-        await this.handleCycleError(error, 'FEATURE_COMPUTATION');
-        throw error; // This is critical, can't continue without features
-      }
+      // Phase 2: Feature computation
+      await this.runFeatureComputationPhase();
 
-      // Phase 3: Signal Generation (with error recovery)
-      try {
-        await this.runSignalGenerationPhase();
-      } catch (error) {
-        await this.handleCycleError(error, 'SIGNAL_GENERATION');
-        throw error; // This is critical, can't continue without signals
-      }
+      // Phase 3: Signal generation
+      await this.runSignalGenerationPhase();
 
-      // Phase 4: AI Analysis (optional, with error recovery)
-      if (this.config.enable_ai_analysis && this.systemHealthScore > 0.5) {
+      // Phase 4: AI Analysis (if enabled)
+      if (config.enable_ai_analysis && this.systemHealthScore > 0.5) {
         try {
           await this.runAIAnalysisPhase();
         } catch (error) {
-          logger.warn('⚠️ AI analysis failed, continuing without it:', error);
+          logger.warn(`⚠️ ${marketType} AI analysis failed:`, error);
           this.currentCycle!.errors.push(`AI analysis failed: ${error.message}`);
         }
       }
 
-      // Phase 5: Trade Execution (optional, with error recovery)
-      if (this.config.enable_trading && this.systemHealthScore > 0.7) {
+      // Phase 5: Trade execution (if enabled)
+      if (config.enable_trading && this.systemHealthScore > 0.7) {
         try {
           await this.runTradeExecutionPhase();
         } catch (error) {
-          logger.warn('⚠️ Trade execution failed, continuing:', error);
+          logger.warn(`⚠️ ${marketType} trade execution failed:`, error);
           this.currentCycle!.errors.push(`Trade execution failed: ${error.message}`);
         }
       } else {
-        logger.info('📝 Paper trading mode or low system health - no actual trades executed');
+        logger.info(`📝 ${marketType} paper trading mode - no actual trades executed`);
       }
 
-      // Phase 6: Portfolio Update (with error recovery)
+      // Phase 6: Portfolio update
       try {
         await this.runPortfolioUpdatePhase();
       } catch (error) {
-        logger.warn('⚠️ Portfolio update failed:', error);
+        logger.warn(`⚠️ ${marketType} portfolio update failed:`, error);
         this.currentCycle!.errors.push(`Portfolio update failed: ${error.message}`);
       }
 
-      // Phase 7: Reflection (periodic, with error recovery)
-      if (this.shouldRunReflection()) {
+      // Phase 7: Periodic reflection and reporting
+      if (marketType === 'equity' && this.shouldRunReflection()) {
         try {
           await this.runReflectionPhase();
         } catch (error) {
@@ -536,8 +352,7 @@ export class TradingRunner {
         }
       }
 
-      // Phase 8: Reporting (periodic, with error recovery)
-      if (this.shouldRunReport()) {
+      if (marketType === 'equity' && this.shouldRunReport()) {
         try {
           await this.runReportingPhase();
         } catch (error) {
@@ -549,7 +364,6 @@ export class TradingRunner {
       this.currentCycle.status = 'SUCCESS';
       this.currentCycle.phase = 'COMPLETED';
       this.currentCycle.metrics.total_cycle_time_ms = Date.now() - startTime;
-      
       this.runCount++;
       this.dailyRunCount++;
 
@@ -559,18 +373,17 @@ export class TradingRunner {
       // Store cycle results
       await this.storeCycleResults(this.currentCycle);
 
-      logger.info(`✅ Trading cycle completed: ${cycleId}`, {
+      logger.info(`✅ ${marketType.toUpperCase()} cycle completed: ${cycleId}`, {
         total_time: this.currentCycle.metrics.total_cycle_time_ms,
         signals_generated: this.currentCycle.signals_generated,
         trades_executed: this.currentCycle.trades_executed,
-        portfolio_change: this.currentCycle.results.portfolio_value_change,
-        system_health: this.systemHealthScore
+        tickers_processed: this.currentCycle.tickers_processed.length
       });
 
       return this.currentCycle;
 
     } catch (error) {
-      logger.error(`❌ Trading cycle failed: ${cycleId}`, error);
+      logger.error(`❌ ${marketType} trading cycle failed: ${cycleId}`, error);
 
       if (this.currentCycle) {
         this.currentCycle.status = 'FAILED';
@@ -580,131 +393,398 @@ export class TradingRunner {
         await this.storeCycleResults(this.currentCycle);
       }
 
-      // Handle the error (might trigger emergency procedures)
-      await this.handleCycleError(error, 'OVERALL_CYCLE');
-      
+      await this.handleCycleError(error, `${marketType.toUpperCase()}_CYCLE`);
       throw error;
     }
   }
 
+  // Market-specific data ingestion
+  private async runMarketDataIngestion(marketType: 'equity' | 'crypto', tickers: string[]): Promise<void> {
+    this.currentCycle!.phase = 'DATA_INGESTION';
+    const startTime = Date.now();
 
+    try {
+      logger.info(`📥 ${marketType} data ingestion phase started`);
+      const marketData = await dataIngestor.fetchMarketData(tickers, marketType);
+      this.currentCycle!.tickers_processed = [...new Set(marketData.map(d => d.symbol))];
+      this.currentCycle!.metrics.data_ingestion_time_ms = Date.now() - startTime;
+
+      logger.info(`📥 ${marketType} data ingestion completed`, {
+        tickers_processed: this.currentCycle!.tickers_processed.length,
+        data_points: marketData.length,
+        time_ms: this.currentCycle!.metrics.data_ingestion_time_ms,
+        market_type: marketType
+      });
+    } catch (error) {
+      this.currentCycle!.errors.push(`${marketType} data ingestion failed: ${error}`);
+      throw error;
+    }
+  }
+
+  // Backward compatible single cycle method
+  async runSingleCycle(): Promise<RunCycle> {
+    // For backward compatibility, run equity cycle
+    return this.runEquityCycle();
+  }
+
+  // Error recovery methods (unchanged from previous implementation)
+  private async handleCycleError(error: any, phase: string): Promise<void> {
+    this.errorCount++;
+    this.consecutiveErrors++;
+    
+    logger.error(`🚨 Error in ${phase} (${this.consecutiveErrors}/${this.maxConsecutiveErrors} consecutive):`, {
+      error: error.message,
+      phase,
+      errorCount: this.errorCount,
+      consecutiveErrors: this.consecutiveErrors,
+      systemHealth: this.systemHealthScore
+    });
+
+    this.systemHealthScore = Math.max(0.1, this.systemHealthScore - 0.1);
+
+    if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
+      logger.error('🚨 MAXIMUM CONSECUTIVE ERRORS REACHED - ENTERING EMERGENCY MODE');
+      await this.enterEmergencyMode();
+      return;
+    }
+
+    if (this.errorCount >= this.maxErrors) {
+      logger.error('🚨 MAXIMUM TOTAL ERRORS REACHED - STOPPING RUNNER');
+      await this.emergencyShutdown();
+      return;
+    }
+
+    const retryDelay = this.calculateRetryDelay(phase);
+    logger.info(`⏱ Waiting ${retryDelay/1000} seconds before retry...`);
+    await new Promise(resolve => setTimeout(resolve, retryDelay));
+  }
+
+  private calculateRetryDelay(phase: string): number {
+    const baseDelay = 30000;
+    const phaseMultipliers: { [key: string]: number } = {
+      'DATA_INGESTION': 1.0,
+      'FEATURE_COMPUTATION': 1.2,
+      'SIGNAL_GENERATION': 1.5,
+      'AI_ANALYSIS': 2.0,
+      'TRADE_EXECUTION': 0.5,
+      'PORTFOLIO_UPDATE': 0.8
+    };
+    
+    const multiplier = phaseMultipliers[phase] || 1.0;
+    const errorMultiplier = Math.min(this.consecutiveErrors, 5);
+    
+    return Math.min(baseDelay * multiplier * errorMultiplier, 300000);
+  }
+
+  private async enterEmergencyMode(): Promise<void> {
+    this.emergencyMode = true;
+    logger.error('🚨 ENTERING EMERGENCY MODE - SYSTEM WILL ATTEMPT SELF-RECOVERY');
+
+    try {
+      this.equityConfig.run_interval_minutes = Math.max(this.equityConfig.run_interval_minutes * 2, 60);
+      this.cryptoConfig.run_interval_minutes = Math.max(this.cryptoConfig.run_interval_minutes * 2, 10);
+      this.equityConfig.tickers = this.equityConfig.tickers.slice(0, 2);
+      this.cryptoConfig.tickers = this.cryptoConfig.tickers.slice(0, 2);
+
+      await this.performSystemDiagnostics();
+
+      const recoveryWait = 10 * 60 * 1000;
+      logger.info(`🕐 Emergency recovery wait: ${recoveryWait/60000} minutes`);
+      await new Promise(resolve => setTimeout(resolve, recoveryWait));
+
+      await this.attemptGradualRecovery();
+    } catch (recoveryError) {
+      logger.error('🚨 Emergency recovery failed:', recoveryError);
+      await this.emergencyShutdown();
+    }
+  }
+
+  private async emergencyShutdown(): Promise<void> {
+    logger.error('🚨 EMERGENCY SHUTDOWN INITIATED');
+    
+    try {
+      await this.saveEmergencyState();
+      
+      this.isRunning = false;
+      if (this.equityJob) {
+        this.equityJob.destroy();
+        this.equityJob = null;
+      }
+      if (this.cryptoJob) {
+        this.cryptoJob.destroy();
+        this.cryptoJob = null;
+      }
+      
+      if (this.currentCycle) {
+        this.currentCycle.status = 'FAILED';
+        this.currentCycle.phase = 'ERROR';
+        this.currentCycle.errors.push('Emergency shutdown triggered');
+        await this.storeCycleResults(this.currentCycle);
+      }
+
+      logger.error('🛑 Runner stopped due to excessive errors. Manual intervention required.');
+    } catch (shutdownError) {
+      logger.error('🚨 Error during emergency shutdown:', shutdownError);
+    }
+  }
+
+  private async performSystemDiagnostics(): Promise<void> {
+    logger.info('🔍 Performing system diagnostics...');
+
+    const diagnostics = {
+      database: false,
+      dataSource: false,
+      signalEngine: false,
+      portfolioManager: false
+    };
+
+    try {
+      diagnostics.database = await DatabaseManager.healthCheck();
+      logger.info(`📊 Database: ${diagnostics.database ? '✅ OK' : '❌ FAILED'}`);
+
+      const dataHealth = await dataIngestor.healthCheck();
+      diagnostics.dataSource = dataHealth.status === 'healthy';
+      logger.info(`📡 Data source: ${diagnostics.dataSource ? '✅ OK' : '❌ FAILED'}`);
+
+      try {
+        const testFeatures = await featuresEngine.computeFeatures(['AAPL']);
+        const testSignals = await signalEngine.generateSignals(testFeatures);
+        diagnostics.signalEngine = testSignals.length >= 0;
+        logger.info(`🎯 Signal engine: ${diagnostics.signalEngine ? '✅ OK' : '❌ FAILED'}`);
+      } catch (signalError) {
+        diagnostics.signalEngine = false;
+        logger.error('❌ Signal engine diagnostic failed:', signalError);
+      }
+
+      try {
+        const snapshot = await portfolioManager.getLatestPortfolioSnapshot();
+        diagnostics.portfolioManager = !!snapshot;
+        logger.info(`💼 Portfolio manager: ${diagnostics.portfolioManager ? '✅ OK' : '❌ FAILED'}`);
+      } catch (portfolioError) {
+        diagnostics.portfolioManager = false;
+        logger.error('❌ Portfolio manager diagnostic failed:', portfolioError);
+      }
+
+      const healthComponents = Object.values(diagnostics);
+      const healthyCount = healthComponents.filter(Boolean).length;
+      this.systemHealthScore = healthyCount / healthComponents.length;
+      
+      logger.info(`🏥 System health score: ${(this.systemHealthScore * 100).toFixed(1)}%`);
+    } catch (diagnosticError) {
+      logger.error('🚨 System diagnostics failed:', diagnosticError);
+      this.systemHealthScore = 0.1;
+    }
+  }
+
+  private async attemptGradualRecovery(): Promise<void> {
+    logger.info('🔄 Attempting gradual recovery...');
+
+    this.consecutiveErrors = Math.floor(this.consecutiveErrors / 2);
+    
+    const recoveryConfig = {
+      ...this.equityConfig,
+      run_interval_minutes: 60,
+      tickers: ['AAPL'],
+      enable_ai_analysis: false,
+      enable_trading: false
+    };
+
+    logger.info('🧪 Testing recovery with minimal configuration...');
+
+    try {
+      const originalConfig = this.config;
+      this.config = recoveryConfig;
+
+      await this.runMinimalCycle();
+
+      logger.info('✅ Recovery test successful - restoring functionality');
+      
+      this.equityConfig = {
+        ...this.equityConfig,
+        run_interval_minutes: Math.max(this.equityConfig.run_interval_minutes, 30),
+        tickers: this.equityConfig.tickers.slice(0, 3),
+        enable_ai_analysis: this.systemHealthScore > 0.7,
+        enable_trading: false
+      };
+
+      this.config = originalConfig;
+      this.emergencyMode = false;
+      this.consecutiveErrors = 0;
+      this.systemHealthScore = Math.min(this.systemHealthScore + 0.3, 1.0);
+
+      logger.info('🎉 Gradual recovery completed successfully');
+    } catch (recoveryError) {
+      logger.error('❌ Gradual recovery failed:', recoveryError);
+      throw recoveryError;
+    }
+  }
+
+  private async runMinimalCycle(): Promise<void> {
+    logger.info('🧪 Running minimal recovery cycle...');
+
+    try {
+      const marketData = await dataIngestor.fetchMarketData(['AAPL'], 'equity');
+      if (marketData.length === 0) {
+        throw new Error('No market data received');
+      }
+
+      const features = await featuresEngine.computeFeatures(['AAPL']);
+      if (features.length === 0) {
+        throw new Error('No features computed');
+      }
+
+      logger.info('✅ Minimal cycle completed successfully');
+    } catch (error) {
+      logger.error('❌ Minimal cycle failed:', error);
+      throw error;
+    }
+  }
+
+  private async saveEmergencyState(): Promise<void> {
+    try {
+      const emergencyState = {
+        timestamp: new Date().toISOString(),
+        errorCount: this.errorCount,
+        consecutiveErrors: this.consecutiveErrors,
+        lastSuccessfulRun: this.lastSuccessfulRun.toISOString(),
+        systemHealthScore: this.systemHealthScore,
+        currentCycle: this.currentCycle,
+        equityConfig: this.equityConfig,
+        cryptoConfig: this.cryptoConfig
+      };
+
+      await DatabaseManager.query(
+        `INSERT INTO runner_cycles (id, timestamp, phase, status, errors, results) 
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          `emergency_${Date.now()}`,
+          new Date(),
+          'EMERGENCY_SHUTDOWN',
+          'FAILED',
+          JSON.stringify(['Emergency shutdown due to excessive errors']),
+          JSON.stringify(emergencyState)
+        ]
+      );
+
+      logger.info('💾 Emergency state saved successfully');
+    } catch (saveError) {
+      logger.error('❌ Failed to save emergency state:', saveError);
+    }
+  }
+
+  private resetErrorCounters(): void {
+    this.errorCount = Math.floor(this.errorCount / 2);
+    this.consecutiveErrors = 0;
+    this.lastSuccessfulRun = new Date();
+    this.systemHealthScore = Math.min(this.systemHealthScore + 0.1, 1.0);
+    this.emergencyMode = false;
+
+    logger.info('✅ Error counters reset after successful cycle', {
+      errorCount: this.errorCount,
+      systemHealth: this.systemHealthScore
+    });
+  }
+
+  // Enhanced status method with dual-market info
   getRunnerStatus(): {
     is_running: boolean;
     run_count: number;
     daily_run_count: number;
     current_cycle: RunCycle | null;
-    config: RunnerConfig;
+    equity_config: RunnerConfig;
+    crypto_config: RunnerConfig;
+    last_equity_run: Date;
+    last_crypto_run: Date;
+    equity_run_count: number;
+    crypto_run_count: number;
+    system_health: number;
+    emergency_mode: boolean;
   } {
     return {
       is_running: this.isRunning,
       run_count: this.runCount,
       daily_run_count: this.dailyRunCount,
       current_cycle: this.currentCycle,
-      config: this.config
+      equity_config: this.equityConfig,
+      crypto_config: this.cryptoConfig,
+      last_equity_run: this.lastEquityRun,
+      last_crypto_run: this.lastCryptoRun,
+      equity_run_count: this.equityRunCount,
+      crypto_run_count: this.cryptoRunCount,
+      system_health: this.systemHealthScore,
+      emergency_mode: this.emergencyMode
     };
   }
 
+  // Configuration validation
   private async validateConfiguration(): Promise<void> {
-    // Validate tickers
-    if (!this.config.tickers || this.config.tickers.length === 0) {
-      throw new Error('No tickers configured for trading');
+    if (!this.equityConfig.tickers || this.equityConfig.tickers.length === 0) {
+      throw new Error('No equity tickers configured for trading');
     }
 
-    // Validate intervals
-    if (this.config.run_interval_minutes < 1 || this.config.run_interval_minutes > 1440) {
-      throw new Error('Run interval must be between 1 and 1440 minutes');
+    if (!this.cryptoConfig.tickers || this.cryptoConfig.tickers.length === 0) {
+      throw new Error('No crypto tickers configured for trading');
     }
 
-    // Check database connectivity
+    if (this.equityConfig.run_interval_minutes < 1 || this.equityConfig.run_interval_minutes > 1440) {
+      throw new Error('Equity run interval must be between 1 and 1440 minutes');
+    }
+
+    if (this.cryptoConfig.run_interval_minutes < 1 || this.cryptoConfig.run_interval_minutes > 60) {
+      throw new Error('Crypto run interval must be between 1 and 60 minutes');
+    }
+
     const dbHealthy = await DatabaseManager.healthCheck();
     if (!dbHealthy) {
       throw new Error('Database connection not healthy');
     }
 
-    logger.info('Configuration validated successfully');
+    logger.info('Dual-market configuration validated successfully');
   }
 
   private async initializeRunner(): Promise<void> {
-    logger.info('Initializing trading runner...');
+    logger.info('Initializing dual-market trading runner...');
     
-    // Check data source health
     const dataHealth = await dataIngestor.healthCheck();
     logger.info('Data sources health check:', dataHealth);
 
-    // Check AI reasoner if enabled
-    if (this.config.enable_ai_analysis) {
+    if (this.equityConfig.enable_ai_analysis || this.cryptoConfig.enable_ai_analysis) {
       const aiHealthy = await aiReasoner.healthCheck();
       logger.info(`AI reasoner health: ${aiHealthy ? 'OK' : 'DEGRADED'}`);
     }
 
-    logger.info('Trading runner initialized');
+    logger.info('Dual-market trading runner initialized');
   }
 
+  // Legacy scheduling method for backward compatibility
   private scheduleRuns(): void {
-    const cronPattern = `*/${this.config.run_interval_minutes} * * * *`;
-    
-    this.cronJob = cron.schedule(cronPattern, async () => {
-      if (this.isRunning && (!this.currentCycle || this.currentCycle.status !== 'RUNNING')) {
-        try {
-          await this.runSingleCycle();
-        } catch (error) {
-          logger.error('Scheduled trading cycle failed:', error);
-        }
-      }
-    }, {
-      scheduled: true,
-      timezone: 'America/New_York' // Market timezone
-    });
-
-    logger.info(`📅 Trading cycles scheduled every ${this.config.run_interval_minutes} minutes`);
+    this.scheduleEquityRuns();
+    this.scheduleCryptoRuns();
   }
 
   private checkDailyLimits(): void {
     const now = new Date();
     
-    // Reset daily counter if new day
     if (now.toDateString() !== this.lastRunDate.toDateString()) {
       this.dailyRunCount = 0;
       this.lastRunDate = now;
       logger.info('Daily run counter reset');
     }
 
-    // Check daily limits
     if (this.dailyRunCount >= this.config.max_daily_runs) {
       throw new Error(`Daily run limit exceeded: ${this.config.max_daily_runs}`);
     }
   }
 
   private shouldRunReflection(): boolean {
-    return this.runCount > 0 && this.runCount % this.config.reflection_frequency === 0;
+    return this.equityRunCount > 0 && this.equityRunCount % this.equityConfig.reflection_frequency === 0;
   }
 
   private shouldRunReport(): boolean {
-    return this.runCount > 0 && this.runCount % this.config.report_frequency === 0;
+    return this.equityRunCount > 0 && this.equityRunCount % this.equityConfig.report_frequency === 0;
   }
 
-  // Mock implementation of trading phases
-  private async runDataIngestionPhase(): Promise<void> {
-    this.currentCycle!.phase = 'DATA_INGESTION';
-    const startTime = Date.now();
-    
-    try {
-      logger.info('📥 Data ingestion phase started');
-      const marketData = await dataIngestor.fetchMarketData(this.config.tickers);
-      this.currentCycle!.tickers_processed = [...new Set(marketData.map(d => d.symbol))];
-      this.currentCycle!.metrics.data_ingestion_time_ms = Date.now() - startTime;
-      
-      logger.info('📥 Data ingestion completed', {
-        tickers_processed: this.currentCycle!.tickers_processed.length,
-        data_points: marketData.length,
-        time_ms: this.currentCycle!.metrics.data_ingestion_time_ms
-      });
-    } catch (error) {
-      this.currentCycle!.errors.push(`Data ingestion failed: ${error}`);
-      throw error;
-    }
-  }
-
+  // Trading phase implementations
   private async runFeatureComputationPhase(): Promise<void> {
     this.currentCycle!.phase = 'FEATURE_COMPUTATION';
     const startTime = Date.now();
@@ -763,66 +843,60 @@ export class TradingRunner {
   }
 
   private async runTradeExecutionPhase(): Promise<void> {
-  this.currentCycle!.phase = 'TRADE_EXECUTION';
-  const startTime = Date.now();
+    this.currentCycle!.phase = 'TRADE_EXECUTION';
+    const startTime = Date.now();
 
-  try {
-    logger.info('⚡ Trade execution phase started');
-    
-    // Get latest signals from this cycle
-    const recentSignals = await signalEngine.getLatestSignals(
-      this.currentCycle!.tickers_processed, 
-      10
-    );
+    try {
+      logger.info('⚡ Trade execution phase started');
+      
+      const recentSignals = await signalEngine.getLatestSignals(
+        this.currentCycle!.tickers_processed, 
+        10
+      );
 
-    // Get current portfolio value
-    const portfolioSnapshot = await portfolioManager.getLatestPortfolioSnapshot();
-    const portfolioValue = portfolioSnapshot?.total_value || 100000;
+      const portfolioSnapshot = await portfolioManager.getLatestPortfolioSnapshot();
+      const portfolioValue = portfolioSnapshot?.total_value || 100000;
 
-    // Execute trades based on signals
-    let tradesExecuted = 0;
-    for (const signal of recentSignals) {
-      if (signal.signal_type !== 'HOLD' && signal.confidence > 0.6) {
-        try {
-          // Get AI analysis for this signal
-          const aiAnalysis = await aiReasoner.analyzeMarket(
-            signal.symbol, 
-            {}, // market data
-            {}, // features 
-            signal
-          );
+      let tradesExecuted = 0;
+      for (const signal of recentSignals) {
+        if (signal.signal_type !== 'HOLD' && signal.confidence > 0.6) {
+          try {
+            const aiAnalysis = await aiReasoner.analyzeMarket(
+              signal.symbol, 
+              {}, 
+              {}, 
+              signal
+            );
 
-          // Execute the trade
-          const trade = await executionEngine.evaluateAndExecute(
-            signal, 
-            aiAnalysis, 
-            portfolioValue
-          );
+            const trade = await executionEngine.evaluateAndExecute(
+              signal, 
+              aiAnalysis, 
+              portfolioValue
+            );
 
-          if (trade) {
-            tradesExecuted++;
-            logger.info(`✅ Executed trade: ${trade.side} ${trade.quantity} ${trade.symbol} @ $${trade.executed_price}`);
+            if (trade) {
+              tradesExecuted++;
+              logger.info(`✅ Executed trade: ${trade.side} ${trade.quantity} ${trade.symbol} @ $${trade.executed_price}`);
+            }
+          } catch (error) {
+            logger.error(`❌ Failed to execute trade for ${signal.symbol}:`, error);
           }
-        } catch (error) {
-          logger.error(`❌ Failed to execute trade for ${signal.symbol}:`, error);
         }
       }
+
+      this.currentCycle!.trades_executed = tradesExecuted;
+      this.currentCycle!.metrics.execution_time_ms = Date.now() - startTime;
+
+      logger.info('⚡ Trade execution completed', {
+        signals_evaluated: recentSignals.length,
+        trades_executed: tradesExecuted,
+        time_ms: this.currentCycle!.metrics.execution_time_ms
+      });
+    } catch (error) {
+      this.currentCycle!.errors.push(`Trade execution failed: ${error}`);
+      throw error;
     }
-
-    this.currentCycle!.trades_executed = tradesExecuted;
-    this.currentCycle!.metrics.execution_time_ms = Date.now() - startTime;
-
-    logger.info('⚡ Trade execution completed', {
-      signals_evaluated: recentSignals.length,
-      trades_executed: tradesExecuted,
-      time_ms: this.currentCycle!.metrics.execution_time_ms
-    });
-  } catch (error) {
-    this.currentCycle!.errors.push(`Trade execution failed: ${error}`);
-    throw error;
   }
-}
-
 
   private async runPortfolioUpdatePhase(): Promise<void> {
     this.currentCycle!.phase = 'PORTFOLIO_UPDATE';
