@@ -30,14 +30,34 @@ export interface CryptoPair {
 class DataIngestor {
   private requestCount: number = 0;
   private lastRequestTime: number = 0;
-  private readonly RATE_LIMIT_MS = 500; // 0.5 seconds between requests
+  private readonly RATE_LIMIT_MS = 500;
   private cryptoPairs: CryptoPair[] = [];
+  private initialized: boolean = false;
 
   constructor() {
-    this.initializeCryptoPairs();
+    // Don't initialize crypto pairs immediately - do it lazily
+    this.initializeCryptoPairsAsync();
+  }
+
+  private async initializeCryptoPairsAsync(): Promise<void> {
+    try {
+      // Wait a bit to ensure database is initialized
+      setTimeout(async () => {
+        await this.initializeCryptoPairs();
+      }, 5000);
+    } catch (error) {
+      logger.warn('Failed to initialize crypto pairs, will retry later:', error);
+      this.cryptoPairs = [
+        { symbol: 'BTCUSDT', base_asset: 'BTC', quote_asset: 'USDT', min_trade_amount: 0.00001, price_precision: 2, quantity_precision: 5 },
+        { symbol: 'ETHUSDT', base_asset: 'ETH', quote_asset: 'USDT', min_trade_amount: 0.001, price_precision: 2, quantity_precision: 4 }
+      ];
+      this.initialized = true;
+    }
   }
 
   private async initializeCryptoPairs(): Promise<void> {
+    if (this.initialized) return;
+    
     try {
       const query = `SELECT * FROM crypto_pairs WHERE is_active = true`;
       const result = await DatabaseManager.query(query);
@@ -52,13 +72,17 @@ class DataIngestor {
       }));
 
       logger.info(`📋 Loaded ${this.cryptoPairs.length} active crypto pairs`);
+      this.initialized = true;
     } catch (error) {
       logger.error('Failed to load crypto pairs:', error);
-      // Fallback to default pairs
       this.cryptoPairs = [
         { symbol: 'BTCUSDT', base_asset: 'BTC', quote_asset: 'USDT', min_trade_amount: 0.00001, price_precision: 2, quantity_precision: 5 },
-        { symbol: 'ETHUSDT', base_asset: 'ETH', quote_asset: 'USDT', min_trade_amount: 0.001, price_precision: 2, quantity_precision: 4 }
+        { symbol: 'ETHUSDT', base_asset: 'ETH', quote_asset: 'USDT', min_trade_amount: 0.001, price_precision: 2, quantity_precision: 4 },
+        { symbol: 'ADAUSDT', base_asset: 'ADA', quote_asset: 'USDT', min_trade_amount: 10, price_precision: 4, quantity_precision: 0 },
+        { symbol: 'DOTUSDT', base_asset: 'DOT', quote_asset: 'USDT', min_trade_amount: 1, price_precision: 3, quantity_precision: 1 },
+        { symbol: 'LINKUSDT', base_asset: 'LINK', quote_asset: 'USDT', min_trade_amount: 0.1, price_precision: 3, quantity_precision: 2 }
       ];
+      this.initialized = true;
     }
   }
 
@@ -84,12 +108,12 @@ class DataIngestor {
           try {
             await this.storeMarketData(data);
             logger.debug(`✅ Stored ${marketType} data for ${symbol}: $${data.close.toFixed(data.market_type === 'crypto' ? 2 : 2)}`);
-          } catch (storeError) {
+          } catch (storeError: any) {
             logger.warn(`⚠️ Failed to store data for ${symbol}:`, storeError.message);
           }
         }
-      } catch (error) {
-        logger.error(`Failed to fetch ${marketType} data for ${symbol}:`, error);
+      } catch (error: any) {
+        logger.error(`Failed to fetch ${marketType} data for ${symbol}:`, error.message);
         
         const fallbackData = await this.getFallbackData(symbol, marketType);
         if (fallbackData) {
@@ -97,7 +121,6 @@ class DataIngestor {
         }
       }
       
-      // Small delay between requests
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     
@@ -107,51 +130,71 @@ class DataIngestor {
 
   private async fetchCryptoData(symbol: string): Promise<MarketData | null> {
     try {
-      // Use Binance API (free, no API key required)
-      const endpoints = [
+      if (!this.initialized) {
+        await this.initializeCryptoPairs();
+      }
+
+      const binanceUrls = [
         `https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
         `https://api1.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
-        `https://api2.binance.com/api/v3/ticker/24hr?symbol=${symbol}`
+        `https://api2.binance.com/api/v3/ticker/24hr?symbol=${symbol}`,
+        `https://api3.binance.com/api/v3/ticker/24hr?symbol=${symbol}`
       ];
 
       let response;
-      for (const endpoint of endpoints) {
+      let lastError;
+
+      for (const url of binanceUrls) {
         try {
-          response = await axios.get(endpoint, {
+          response = await axios.get(url, {
             timeout: 8000,
             headers: {
-              'User-Agent': 'Elysian-Trading-System/1.0'
+              'User-Agent': 'Mozilla/5.0 (compatible; Elysian-Trading/1.0)',
+              'Accept': 'application/json'
             }
           });
-          break;
-        } catch (endpointError) {
-          logger.debug(`Binance endpoint ${endpoint} failed, trying next...`);
+          
+          if (response.data && response.data.symbol === symbol) {
+            break;
+          }
+        } catch (error: any) {
+          lastError = error;
+          logger.debug(`Binance endpoint ${url} failed:`, error.message);
           continue;
         }
       }
 
-      if (!response) {
-        throw new Error('All Binance endpoints failed');
+      if (!response || !response.data || !response.data.symbol) {
+        logger.warn(`All Binance endpoints failed for ${symbol}, using fallback data`);
+        return this.generateCryptoFallbackData(symbol);
       }
 
       const data = response.data;
       
-      if (!data || !data.symbol) {
-        throw new Error(`Invalid response format for ${symbol}`);
+      let ohlcData = null;
+      try {
+        const klineResponse = await axios.get(
+          `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=2`,
+          { timeout: 5000 }
+        );
+        
+        if (klineResponse.data && klineResponse.data.length > 0) {
+          const latestKline = klineResponse.data[klineResponse.data.length - 1];
+          ohlcData = {
+            open: parseFloat(latestKline[1]),
+            high: parseFloat(latestKline[2]),
+            low: parseFloat(latestKline[3]),
+            close: parseFloat(latestKline[4])
+          };
+        }
+      } catch (klineError) {
+        logger.debug(`Kline data failed for ${symbol}, using ticker data`);
       }
 
-      // Get additional OHLC data from klines endpoint
-      const klineResponse = await axios.get(
-        `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=2`,
-        { timeout: 5000 }
-      );
-
-      const latestKline = klineResponse.data[klineResponse.data.length - 1];
-      
       const marketData: MarketData = {
         symbol,
         timestamp: new Date(parseInt(data.closeTime)),
-        open: parseFloat(latestKline[1]), // Open price from kline
+        open: ohlcData ? ohlcData.open : parseFloat(data.openPrice),
         high: parseFloat(data.highPrice),
         low: parseFloat(data.lowPrice),
         close: parseFloat(data.lastPrice),
@@ -160,22 +203,57 @@ class DataIngestor {
         market_type: 'crypto'
       };
 
-      // Validate data quality
       if (marketData.close <= 0 || marketData.volume < 0) {
-        throw new Error(`Invalid price/volume data for ${symbol}`);
+        logger.warn(`Invalid data for ${symbol}, using fallback`);
+        return this.generateCryptoFallbackData(symbol);
       }
 
       if (marketData.high < marketData.low) {
-        throw new Error(`Invalid OHLC data for ${symbol}: High < Low`);
+        logger.warn(`Invalid OHLC for ${symbol}, using fallback`);
+        return this.generateCryptoFallbackData(symbol);
       }
 
-      logger.debug(`🪙 Crypto data fetched for ${symbol}: $${marketData.close.toFixed(2)} (24h vol: ${marketData.volume.toFixed(0)})`);
+      logger.debug(`🪙 Real crypto data for ${symbol}: $${marketData.close.toFixed(2)} (Vol: ${marketData.volume.toFixed(0)})`);
       return marketData;
 
-    } catch (error) {
-      logger.error(`Binance fetch failed for ${symbol}:`, error.message);
-      return null;
+    } catch (error: any) {
+      logger.error(`Crypto fetch completely failed for ${symbol}:`, error.message);
+      return this.generateCryptoFallbackData(symbol);
     }
+  }
+
+  private generateCryptoFallbackData(symbol: string): MarketData {
+    const cryptoPrices: { [key: string]: number } = {
+      'BTCUSDT': 43250 + (Math.random() - 0.5) * 2000,
+      'ETHUSDT': 2341 + (Math.random() - 0.5) * 200,
+      'ADAUSDT': 0.45 + (Math.random() - 0.5) * 0.05,
+      'DOTUSDT': 5.2 + (Math.random() - 0.5) * 0.5,
+      'LINKUSDT': 14.5 + (Math.random() - 0.5) * 1.5
+    };
+
+    const basePrice = cryptoPrices[symbol] || (Math.random() * 100 + 50);
+    const volatility = 0.05;
+    const change = (Math.random() - 0.5) * 2 * volatility;
+    
+    const close = basePrice * (1 + change);
+    const open = basePrice;
+    const high = Math.max(open, close) * (1 + Math.random() * volatility);
+    const low = Math.min(open, close) * (1 - Math.random() * volatility);
+    const volume = Math.floor(Math.random() * 2000000) + 100000;
+
+    logger.info(`🎲 Generated fallback crypto data for ${symbol}: $${close.toFixed(2)}`);
+
+    return {
+      symbol,
+      timestamp: new Date(),
+      open: parseFloat(open.toFixed(6)),
+      high: parseFloat(high.toFixed(6)),
+      low: parseFloat(low.toFixed(6)),
+      close: parseFloat(close.toFixed(6)),
+      volume,
+      provider: 'fallback',
+      market_type: 'crypto'
+    };
   }
 
   private async fetchEquityData(symbol: string): Promise<MarketData | null> {
@@ -244,7 +322,7 @@ class DataIngestor {
       logger.debug(`📈 Equity data fetched for ${symbol}: $${marketData.close.toFixed(2)}`);
       return marketData;
 
-    } catch (error) {
+    } catch (error: any) {
       logger.error(`Yahoo Finance fetch failed for ${symbol}:`, error.message);
       return null;
     }
@@ -278,8 +356,7 @@ class DataIngestor {
         const row = result.rows[0];
         const lastPrice = parseFloat(row.close);
         
-        // Generate realistic price based on market type
-        const volatility = marketType === 'crypto' ? 0.05 : 0.02; // Crypto more volatile
+        const volatility = marketType === 'crypto' ? 0.05 : 0.02;
         const change = (Math.random() - 0.5) * 2 * volatility;
         const newPrice = lastPrice * (1 + change);
         
@@ -307,16 +384,13 @@ class DataIngestor {
   }
 
   private generateMockData(symbol: string, marketType: 'equity' | 'crypto'): MarketData {
-    // Base prices for different assets
     const basePrices: { [key: string]: number } = {
-      // Equities
       'AAPL': 175, 'MSFT': 330, 'GOOGL': 135, 'NVDA': 450, 'TSLA': 240,
-      // Crypto
       'BTCUSDT': 43000, 'ETHUSDT': 2300, 'ADAUSDT': 0.45, 'DOTUSDT': 5.2, 'LINKUSDT': 14.5
     };
     
     const basePrice = basePrices[symbol] || (marketType === 'crypto' ? 100 : 150);
-    const volatility = marketType === 'crypto' ? 0.08 : 0.02; // Higher crypto volatility
+    const volatility = marketType === 'crypto' ? 0.08 : 0.02;
     const change = (Math.random() - 0.5) * 2 * volatility;
     
     const close = basePrice * (1 + change);
@@ -422,7 +496,7 @@ class DataIngestor {
           crypto_pairs_loaded: this.cryptoPairs.length
         }
       };
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Data ingestor health check failed:', error);
       return {
         status: 'unhealthy',
@@ -434,29 +508,24 @@ class DataIngestor {
     }
   }
 
-  // Get active crypto pairs
   getCryptoPairs(): CryptoPair[] {
     return this.cryptoPairs;
   }
 
-  // Check if markets are open
   async isMarketOpen(marketType: 'equity' | 'crypto'): Promise<boolean> {
     try {
       if (marketType === 'crypto') {
-        return true; // Crypto markets are always open
+        return true;
       }
 
-      // Check equity market hours (simplified)
       const now = new Date();
       const utcHours = now.getUTCHours();
       const utcMinutes = now.getUTCMinutes();
       const utcTime = utcHours * 60 + utcMinutes;
       
-      // NYSE/NASDAQ hours: 14:30 - 21:00 UTC (9:30 AM - 4:00 PM EST)
-      const marketOpen = 14 * 60 + 30; // 14:30 UTC
-      const marketClose = 21 * 60; // 21:00 UTC
+      const marketOpen = 14 * 60 + 30;
+      const marketClose = 21 * 60;
       
-      // Check if it's a weekday (Monday = 1, Sunday = 0)
       const dayOfWeek = now.getUTCDay();
       const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
       
