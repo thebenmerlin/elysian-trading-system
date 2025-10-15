@@ -1,15 +1,14 @@
 /**
  * Elysian Trading System - Dual-Market Dashboard (CORRECTED)
- * Enhanced with crypto market display and dual-market status
  */
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useQuery } from 'react-query'
 import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
 import Terminal, { useTerminalLines } from '@/components/Terminal'
-import MetricCard, { PnLCard, ReturnCard, SharpeCard, DrawdownCard } from '@/components/MetricCard'
+import MetricCard, { PnLCard, ReturnCard, SharpeCard } from '@/components/MetricCard'
 import { apiClient, formatCurrency, formatPercentage, getStatusColor, getPnLColor } from '@/utils/api'
-import { Activity, TrendingUp, DollarSign, Target, Settings, Play, Square, RotateCcw, Clock, Globe } from 'lucide-react'
+import { Activity, TrendingUp, DollarSign, Target, Settings, Play, Square, RotateCcw, Globe } from 'lucide-react'
 
 export default function Dashboard() {
   const [isRunning, setIsRunning] = useState(false)
@@ -21,7 +20,6 @@ export default function Dashboard() {
     { id: 'loading', text: 'Loading equity and crypto market data...', type: 'info' }
   ])
 
-  // Enhanced data fetching with dual-market support
   const { data: portfolio, isLoading: portfolioLoading } = useQuery(
     'portfolio',
     () => apiClient.portfolio.getCurrent(),
@@ -30,7 +28,7 @@ export default function Dashboard() {
       retry: 2,
       onSuccess: (data) => {
         if (data && !data.error) {
-          addSuccess(`Portfolio updated: ${formatCurrency(data.data?.total_value || 0)} (Equity + Crypto)`);
+          addSuccess(`Portfolio updated: ${formatCurrency(data.data?.total_value || 0)}`);
         } else {
           addError('Portfolio data incomplete');
         }
@@ -51,14 +49,14 @@ export default function Dashboard() {
         if (data?.data) {
           const status = data.data.status;
           if (status === 'healthy') {
-            addSuccess('Dual-market system health check passed');
+            addSuccess('Dual-market system healthy');
           } else {
             addError(`System status: ${status}`);
           }
         }
       },
       onError: () => {
-        addError('Health check failed - backend may be down');
+        addError('Health check failed');
       }
     }
   )
@@ -72,17 +70,16 @@ export default function Dashboard() {
       onSuccess: (data) => {
         if (data?.data) {
           setIsRunning(data.data.is_running || false);
-          const equityCount = data.data.equity_run_count || 0;
-          const cryptoCount = data.data.crypto_run_count || 0;
+          const equityCount = (data.data as any).equity_run_count || 0;
+          const cryptoCount = (data.data as any).crypto_run_count || 0;
           if (equityCount > 0 || cryptoCount > 0) {
-            addLine(`Cycle counts - Equity: ${equityCount}, Crypto: ${cryptoCount}`, 'info');
+            addLine(`Cycles - Equity: ${equityCount}, Crypto: ${cryptoCount}`, 'info');
           }
         }
       }
     }
   )
 
-  // Market status with proper error handling
   const { data: marketStatus } = useQuery(
     'market-status',
     async () => {
@@ -90,12 +87,9 @@ export default function Dashboard() {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://elysian-backend-bd3o.onrender.com'}/api/market/status`, {
           headers: { 'x-elysian-key': process.env.NEXT_PUBLIC_API_KEY || 'elysian-demo-key' }
         });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
       } catch (error) {
-        console.warn('Market status fetch failed:', error);
         return {
           data: {
             equity: { is_open: false, trading_hours: '9:30 AM - 4:00 PM EST' },
@@ -104,10 +98,7 @@ export default function Dashboard() {
         };
       }
     },
-    {
-      refetchInterval: 60000,
-      retry: 1
-    }
+    { refetchInterval: 60000, retry: 1 }
   )
 
   const { data: recentTrades } = useQuery(
@@ -117,12 +108,11 @@ export default function Dashboard() {
       refetchInterval: 30000,
       retry: 1,
       onError: () => {
-        addError('Failed to fetch recent trades');
+        addError('Failed to fetch trades');
       }
     }
   )
 
-  // Crypto data with proper error handling
   const { data: cryptoData } = useQuery(
     'crypto-market-data',
     async () => {
@@ -130,12 +120,9 @@ export default function Dashboard() {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://elysian-backend-bd3o.onrender.com'}/api/crypto/latest`, {
           headers: { 'x-elysian-key': process.env.NEXT_PUBLIC_API_KEY || 'elysian-demo-key' }
         });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.json();
       } catch (error) {
-        console.warn('Crypto data fetch failed:', error);
         return { data: [] };
       }
     },
@@ -144,7 +131,7 @@ export default function Dashboard() {
       retry: 1,
       onSuccess: (data) => {
         if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-          addLine(`Crypto data updated: ${data.data.length} pairs`, 'success');
+          addLine(`Crypto updated: ${data.data.length} pairs`, 'success');
         }
       }
     }
@@ -153,13 +140,9 @@ export default function Dashboard() {
   const { data: latestReflection } = useQuery(
     'latest-reflection',
     () => apiClient.reflections.getLatest(),
-    { 
-      refetchInterval: 300000,
-      retry: 1
-    }
+    { refetchInterval: 300000, retry: 1 }
   )
 
-  // Safe data extraction with defaults
   const portfolioData = portfolio?.data || {
     total_value: 100000,
     cash: 100000,
@@ -176,11 +159,7 @@ export default function Dashboard() {
 
   const healthData = systemHealth?.data || {
     status: 'unknown',
-    database: 'unknown',
-    components: {
-      database: 'unknown',
-      trading_runner: { status: 'unknown' }
-    }
+    database: 'unknown'
   };
 
   const runnerData = runnerStatus?.data || {
@@ -200,22 +179,20 @@ export default function Dashboard() {
   const tradesData = Array.isArray(recentTrades?.data) ? recentTrades.data : [];
   const cryptoMarketData = Array.isArray(cryptoData?.data) ? cryptoData.data : [];
 
-  // Safe reflection data extraction
   const reflectionData = latestReflection?.data;
   const safeInsights = Array.isArray(reflectionData?.key_insights) ? reflectionData.key_insights : [];
   const safeRecommendations = Array.isArray(reflectionData?.recommended_adjustments) ? reflectionData.recommended_adjustments : [];
 
-  // Enhanced action handlers with dual-market support
   const handleStartRunner = async () => {
     try {
       addCommand('start-dual-market-runner');
       await apiClient.system.startRunner();
-      addSuccess('Dual-market trading runner started successfully');
+      addSuccess('Dual-market runner started');
       setIsRunning(true);
-      toast.success('Dual-market runner started');
+      toast.success('Runner started');
     } catch (error: any) {
-      addError(`Failed to start runner: ${error.message}`);
-      toast.error('Failed to start runner');
+      addError(`Failed to start: ${error.message}`);
+      toast.error('Failed to start');
     }
   }
 
@@ -223,25 +200,25 @@ export default function Dashboard() {
     try {
       addCommand('stop-dual-market-runner');
       await apiClient.system.stopRunner();
-      addSuccess('Dual-market trading runner stopped');
+      addSuccess('Dual-market runner stopped');
       setIsRunning(false);
-      toast.success('Dual-market runner stopped');
+      toast.success('Runner stopped');
     } catch (error: any) {
-      addError(`Failed to stop runner: ${error.message}`);
-      toast.error('Failed to stop runner');
+      addError(`Failed to stop: ${error.message}`);
+      toast.error('Failed to stop');
     }
   }
 
   const handleRunCycle = async () => {
     try {
       addCommand('run-trading-cycle');
-      addLine('Executing dual-market trading cycle...', 'info');
-      const result = await apiClient.system.runCycle();
-      addSuccess('Trading cycle completed successfully');
-      toast.success('Trading cycle completed');
+      addLine('Executing trading cycle...', 'info');
+      await apiClient.system.runCycle();
+      addSuccess('Cycle completed');
+      toast.success('Cycle completed');
     } catch (error: any) {
-      addError(`Trading cycle failed: ${error.message}`);
-      toast.error('Trading cycle failed');
+      addError(`Cycle failed: ${error.message}`);
+      toast.error('Cycle failed');
     }
   }
 
@@ -249,23 +226,17 @@ export default function Dashboard() {
     <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6 font-mono">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Enhanced Header with Market Status */}
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center justify-between"
         >
           <div>
-            <h1 className="text-3xl font-bold tracking-wider">
-              PROJECT ELYSIAN
-            </h1>
-            <p className="text-terminal-muted mt-1">
-              DUAL-MARKET AUTONOMOUS TRADING • BY GAJANAN BARVE
-            </p>
+            <h1 className="text-3xl font-bold tracking-wider">PROJECT ELYSIAN</h1>
+            <p className="text-terminal-muted mt-1">DUAL-MARKET AUTONOMOUS TRADING • BY GAJANAN BARVE</p>
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Market Status Indicators */}
             <div className="flex gap-2">
               <div className={`px-2 py-1 rounded text-xs border ${
                 marketData.equity?.is_open 
@@ -279,20 +250,16 @@ export default function Dashboard() {
               </div>
             </div>
             
-            {/* System Status */}
             <div className={`px-3 py-1 rounded border ${
               isRunning ? 'border-terminal-primary bg-terminal-primary/10' : 'border-terminal-error bg-terminal-error/10'
             }`}>
-              <span className={`text-sm font-bold ${
-                isRunning ? 'text-terminal-primary' : 'text-terminal-error'
-              }`}>
+              <span className={`text-sm font-bold ${isRunning ? 'text-terminal-primary' : 'text-terminal-error'}`}>
                 {isRunning ? 'RUNNING' : 'STOPPED'}
               </span>
             </div>
           </div>
         </motion.div>
 
-        {/* Enhanced Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Portfolio Value"
@@ -322,20 +289,17 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Terminal Display with Enhanced Controls */}
           <div className="lg:col-span-2">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Activity className="w-5 h-5" />
               System Activity
               <span className="text-sm text-terminal-muted ml-2">
-                (Equity: {runnerData.equity_run_count || 0} | Crypto: {runnerData.crypto_run_count || 0} cycles)
+                (Equity: {(runnerData as any).equity_run_count || 0} | Crypto: {(runnerData as any).crypto_run_count || 0} cycles)
               </span>
             </h2>
             
-            {/* Enhanced Trading Controls */}
             <div className="mb-4 flex gap-3 flex-wrap">
               <button
                 onClick={handleStartRunner}
@@ -371,7 +335,6 @@ export default function Dashboard() {
                 RUN CYCLE
               </button>
 
-              {/* Market Filter Toggle */}
               <div className="flex rounded border border-terminal-border overflow-hidden">
                 {(['both', 'equity', 'crypto'] as const).map((market) => (
                   <button
@@ -389,14 +352,11 @@ export default function Dashboard() {
               </div>
             </div>
             
-            {/* Terminal Component */}
             <Terminal lines={lines} />
           </div>
 
-          {/* Enhanced Right Sidebar */}
           <div className="space-y-6">
             
-            {/* System Status with Dual-Market Info */}
             <div className="terminal-window">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <Settings className="w-4 h-4" />
@@ -404,7 +364,6 @@ export default function Dashboard() {
               </h3>
               
               <div className="space-y-4">
-                {/* Overall Health */}
                 <div>
                   <p className="text-sm font-bold text-terminal-secondary">Health Check</p>
                   <div className="mt-2 space-y-2 text-sm">
@@ -422,14 +381,11 @@ export default function Dashboard() {
                     </div>
                     <div className="flex justify-between">
                       <span>Mode:</span>
-                      <span className="text-terminal-warning">
-                        PAPER TRADING
-                      </span>
+                      <span className="text-terminal-warning">PAPER TRADING</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Market Timing */}
                 <div>
                   <p className="text-sm font-bold text-terminal-secondary">Market Hours</p>
                   <div className="mt-2 space-y-2 text-sm">
@@ -448,20 +404,19 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Runner Configuration */}
                 <div>
                   <p className="text-sm font-bold text-terminal-secondary">Configuration</p>
                   <div className="mt-2 space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span>Equity Interval:</span>
                       <span className="text-terminal-muted">
-                        {runnerData.equity_config?.run_interval_minutes || 15}min
+                        {(runnerData as any).equity_config?.run_interval_minutes || 15}min
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Crypto Interval:</span>
                       <span className="text-yellow-400">
-                        {runnerData.crypto_config?.run_interval_minutes || 5}min
+                        {(runnerData as any).crypto_config?.run_interval_minutes || 5}min
                       </span>
                     </div>
                   </div>
@@ -469,7 +424,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Crypto Market Data */}
             {showCrypto && (
               <div className="terminal-window">
                 <h3 className="text-lg font-bold mb-4 flex items-center justify-between">
@@ -517,11 +471,11 @@ export default function Dashboard() {
                         <span className="text-terminal-secondary">Binance API</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Update Frequency:</span>
+                        <span>Update:</span>
                         <span className="text-terminal-secondary">10 seconds</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Market Status:</span>
+                        <span>Status:</span>
                         <span className="text-terminal-primary">24/7 ACTIVE</span>
                       </div>
                     </div>
@@ -537,7 +491,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Show Crypto button when hidden */}
             {!showCrypto && (
               <div className="terminal-window">
                 <button
@@ -550,7 +503,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Recent Trades with Market Type */}
             <div className="terminal-window">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" />
@@ -594,7 +546,6 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* AI Insights */}
             {reflectionData && (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
@@ -612,9 +563,7 @@ export default function Dashboard() {
                       <h4 className="font-bold text-terminal-secondary mb-2">Key Insights:</h4>
                       <ul className="space-y-1">
                         {safeInsights.slice(0, 3).map((insight: string, index: number) => (
-                          <li key={index} className="text-terminal-muted">
-                            • {insight}
-                          </li>
+                          <li key={index} className="text-terminal-muted">• {insight}</li>
                         ))}
                       </ul>
                     </div>
@@ -625,9 +574,7 @@ export default function Dashboard() {
                       <h4 className="font-bold text-terminal-secondary mb-2">Recommendations:</h4>
                       <ul className="space-y-1">
                         {safeRecommendations.slice(0, 2).map((rec: any, index: number) => (
-                          <li key={index} className="text-terminal-muted">
-                            • {rec.reasoning || rec.toString()}
-                          </li>
+                          <li key={index} className="text-terminal-muted">• {rec.reasoning || rec.toString()}</li>
                         ))}
                       </ul>
                     </div>
