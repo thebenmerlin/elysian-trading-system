@@ -143,6 +143,7 @@ export default function Dashboard() {
     { refetchInterval: 300000, retry: 1 }
   )
 
+  // Safe data extraction with defaults
   const portfolioData = portfolio?.data || {
     total_value: 100000,
     cash: 100000,
@@ -162,6 +163,7 @@ export default function Dashboard() {
     database: 'unknown'
   };
 
+  // Safe runner data with proper type handling
   const runnerData = runnerStatus?.data || {
     is_running: false,
     equity_config: { tickers: [], run_interval_minutes: 15 },
@@ -169,6 +171,16 @@ export default function Dashboard() {
     equity_run_count: 0,
     crypto_run_count: 0,
     system_health: 1.0
+  };
+
+  // Create safe runner data accessor
+  const safeRunnerData = {
+    is_running: runnerData.is_running || false,
+    equity_config: (runnerData as any).equity_config || { tickers: [], run_interval_minutes: 15 },
+    crypto_config: (runnerData as any).crypto_config || { tickers: [], run_interval_minutes: 5 },
+    equity_run_count: (runnerData as any).equity_run_count || 0,
+    crypto_run_count: (runnerData as any).crypto_run_count || 0,
+    system_health: (runnerData as any).system_health || 1.0
   };
 
   const marketData = marketStatus?.data || {
@@ -183,6 +195,7 @@ export default function Dashboard() {
   const safeInsights = Array.isArray(reflectionData?.key_insights) ? reflectionData.key_insights : [];
   const safeRecommendations = Array.isArray(reflectionData?.recommended_adjustments) ? reflectionData.recommended_adjustments : [];
 
+  // Enhanced action handlers
   const handleStartRunner = async () => {
     try {
       addCommand('start-dual-market-runner');
@@ -226,6 +239,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6 font-mono">
       <div className="max-w-7xl mx-auto space-y-6">
         
+        {/* Enhanced Header */}
         <motion.div 
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -260,6 +274,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
+        {/* Enhanced Metrics Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             title="Portfolio Value"
@@ -276,30 +291,33 @@ export default function Dashboard() {
             <div className="flex items-center justify-between mb-2">
               <Globe className="w-4 h-4" />
               <div className="text-xs text-terminal-muted">
-                Health: {((runnerData.system_health || 1.0) * 100).toFixed(0)}%
+                Health: {(safeRunnerData.system_health * 100).toFixed(0)}%
               </div>
             </div>
             <h3 className="text-sm font-bold text-terminal-secondary mb-2">System Health</h3>
             <div className="text-2xl font-mono">
-              {(runnerData.system_health || 1.0) >= 0.8 ? '🟢' : (runnerData.system_health || 1.0) >= 0.5 ? '🟡' : '🔴'}
+              {safeRunnerData.system_health >= 0.8 ? '🟢' : safeRunnerData.system_health >= 0.5 ? '🟡' : '🔴'}
             </div>
             <div className="text-xs text-terminal-muted mt-1">
-              {(runnerData.system_health || 1.0) >= 0.8 ? 'Excellent' : (runnerData.system_health || 1.0) >= 0.5 ? 'Good' : 'Degraded'}
+              {safeRunnerData.system_health >= 0.8 ? 'Excellent' : safeRunnerData.system_health >= 0.5 ? 'Good' : 'Degraded'}
             </div>
           </div>
         </div>
 
+        {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
+          {/* Terminal Display */}
           <div className="lg:col-span-2">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
               <Activity className="w-5 h-5" />
               System Activity
               <span className="text-sm text-terminal-muted ml-2">
-                (Equity: {(runnerData as any).equity_run_count || 0} | Crypto: {(runnerData as any).crypto_run_count || 0} cycles)
+                (Equity: {safeRunnerData.equity_run_count} | Crypto: {safeRunnerData.crypto_run_count} cycles)
               </span>
             </h2>
             
+            {/* Trading Controls */}
             <div className="mb-4 flex gap-3 flex-wrap">
               <button
                 onClick={handleStartRunner}
@@ -355,8 +373,10 @@ export default function Dashboard() {
             <Terminal lines={lines} />
           </div>
 
+          {/* Enhanced Right Sidebar */}
           <div className="space-y-6">
             
+            {/* System Status */}
             <div className="terminal-window">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <Settings className="w-4 h-4" />
@@ -410,13 +430,13 @@ export default function Dashboard() {
                     <div className="flex justify-between">
                       <span>Equity Interval:</span>
                       <span className="text-terminal-muted">
-                        {(runnerData as any).equity_config?.run_interval_minutes || 15}min
+                        {safeRunnerData.equity_config?.run_interval_minutes || 15}min
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Crypto Interval:</span>
                       <span className="text-yellow-400">
-                        {(runnerData as any).crypto_config?.run_interval_minutes || 5}min
+                        {safeRunnerData.crypto_config?.run_interval_minutes || 5}min
                       </span>
                     </div>
                   </div>
@@ -424,6 +444,7 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Crypto Market Data */}
             {showCrypto && (
               <div className="terminal-window">
                 <h3 className="text-lg font-bold mb-4 flex items-center justify-between">
@@ -491,6 +512,7 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Show Crypto Button */}
             {!showCrypto && (
               <div className="terminal-window">
                 <button
@@ -503,6 +525,7 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Recent Trades */}
             <div className="terminal-window">
               <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" />
@@ -546,6 +569,7 @@ export default function Dashboard() {
               )}
             </div>
 
+            {/* AI Insights */}
             {reflectionData && (
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
