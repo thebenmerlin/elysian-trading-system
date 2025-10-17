@@ -29,14 +29,20 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 4000;
 
-// Rate limiting
+// Trust proxy for Render deployment
+app.set('trust proxy', 1);
+
+// Rate limiting (with proxy trust)
 const limiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 200, // Increased for WebSocket connections
+  max: 200,
   message: { error: 'Too many requests' },
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+app.use(limiter);
+
 
 // Middleware
 app.use(helmet());
@@ -378,6 +384,51 @@ app.post('/api/trade/manual', validateApiKey, async (req, res) => {
   }
 });
 
+// Test trade execution endpoint
+app.post('/api/test/trade', validateApiKey, async (req, res) => {
+  try {
+    logger.info('🧪 Manual test trade triggered');
+    
+    // Create a test signal
+    const testSignal = {
+      symbol: 'BTCUSDT',
+      asset_type: 'crypto',
+      signal_type: 'BUY',
+      confidence: 0.8,
+      reasoning: 'Manual test trade execution',
+      features: {},
+      price_at_signal: 106000
+    };
+    
+    const trade = await tradeExecutor.executeSignal(testSignal as any);
+    
+    if (trade) {
+      wsServer.broadcastTradeExecuted(trade);
+      res.json({
+        success: true,
+        message: 'Test trade executed successfully',
+        trade,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.json({
+        success: false,
+        message: 'Test trade was rejected by risk management',
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error: any) {
+    logger.error('Test trade error:', error);
+    res.status(500).json({
+      error: 'Test trade failed',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+
+
 // Default route
 app.get('/', (req, res) => {
   res.json({
@@ -435,6 +486,7 @@ async function startAutonomousSystem(): Promise<void> {
       logger.warn('⚠️ Crypto feeds using fallback mode:', error.message);
       // Don't crash - fallback will handle data
     }
+
     // Start equity data fetcher
     try {
       await equityFetcher.start();
@@ -451,12 +503,12 @@ async function startAutonomousSystem(): Promise<void> {
         logger.debug('WebSocket broadcast error:', error);
       }
     });
-    
+
     binanceStream.on('error', (error) => {
       logger.warn('Binance stream error (continuing with fallback):', error.message);
       // Don't crash the system
     });
-    
+
     // Start AI decision engine with error handling
     try {
       await aiDecisionEngine.start();
@@ -465,24 +517,32 @@ async function startAutonomousSystem(): Promise<void> {
       logger.error('❌ AI Decision Engine failed to start:', error);
       // Continue without AI for now
     }
-    
-    // Connect AI events with error handling
+
+    // 🧠 Connect AI events with lower threshold for demo
     aiDecisionEngine.on('signal', async (signal) => {
       try {
         wsServer.broadcastSignalGenerated(signal);
-        
-        // Auto-execute high-confidence signals
-        if (signal.confidence > 0.7) {
+
+        // Lower threshold for demo purposes (0.5 instead of 0.7)
+        if (signal.confidence > 0.5) {
+          logger.info(`⚡ Executing signal: ${signal.signal_type} ${signal.symbol} (${signal.confidence.toFixed(2)})`);
+          
           const trade = await tradeExecutor.executeSignal(signal);
+          
           if (trade) {
             wsServer.broadcastTradeExecuted(trade);
+            logger.info(`✅ Trade executed successfully: ${trade.side} ${trade.quantity} ${trade.symbol}`);
+          } else {
+            logger.warn(`❌ Trade execution failed for ${signal.symbol} - risk management rejection`);
           }
+        } else {
+          logger.info(`📋 Signal below execution threshold: ${signal.signal_type} ${signal.symbol} (${signal.confidence.toFixed(2)})`);
         }
       } catch (error) {
         logger.error('Error processing AI signal:', error);
       }
     });
-    
+
     // Connect trade executor events
     tradeExecutor.on('trade_executed', (trade) => {
       try {
@@ -491,11 +551,10 @@ async function startAutonomousSystem(): Promise<void> {
         logger.debug('Trade broadcast error:', error);
       }
     });
-    
+
     // Start portfolio monitoring (every 5 minutes)
     setInterval(async () => {
       try {
-        // Update portfolio values and broadcast
         const portfolioQuery = `
           UPDATE portfolio_live 
           SET 
@@ -508,8 +567,7 @@ async function startAutonomousSystem(): Promise<void> {
             AND portfolio_live.asset_type = al.asset_type
         `;
         await DatabaseManager.query(portfolioQuery);
-        
-        // Broadcast portfolio update
+
         wsServer.broadcastSystemEvent({
           type: 'portfolio_updated',
           message: 'Portfolio values updated'
@@ -518,7 +576,7 @@ async function startAutonomousSystem(): Promise<void> {
         logger.debug('Portfolio monitoring error:', error);
       }
     }, 5 * 60 * 1000);
-    
+
     logger.info('🎯 Autonomous trading system operational (with fallback resilience)');
     
   } catch (error) {

@@ -335,15 +335,16 @@ export class BinanceWebSocketStream extends EventEmitter {
 
   private async storePriceFeed(tick: CryptoTick): Promise<void> {
   try {
-    // Store minute-level aggregated data to avoid conflicts
+    // Simplified approach - just insert without ON CONFLICT for now
     const query = `
       INSERT INTO price_feeds (symbol, asset_type, timestamp, close, volume, source)
-      VALUES ($1, 'crypto', date_trunc('minute', NOW()), $2, $3, $4)
-      ON CONFLICT (symbol, asset_type, date_trunc('minute', timestamp)) 
-      DO UPDATE SET
-        close = EXCLUDED.close,
-        volume = GREATEST(price_feeds.volume, EXCLUDED.volume),
-        source = EXCLUDED.source
+      SELECT $1, 'crypto', date_trunc('minute', NOW()), $2, $3, $4
+      WHERE NOT EXISTS (
+        SELECT 1 FROM price_feeds 
+        WHERE symbol = $1 
+          AND asset_type = 'crypto' 
+          AND date_trunc('minute', timestamp) = date_trunc('minute', NOW())
+      )
     `;
     
     const source = this.isConnected ? 'binance_ws' : 
@@ -351,10 +352,13 @@ export class BinanceWebSocketStream extends EventEmitter {
     
     await DatabaseManager.query(query, [tick.symbol, tick.price, tick.quantity, source]);
   } catch (error) {
-    // If constraint still fails, just skip storing - don't crash
-    logger.debug(`Skipping price feed storage for ${tick.symbol}:`, error.message);
+    // Silently skip duplicate insertions - don't spam logs
+    if (!error.message?.includes('duplicate') && !error.message?.includes('unique')) {
+      logger.debug(`Price feed storage issue for ${tick.symbol}:`, error.message);
+    }
   }
 }
+
 
 
   async stop(): Promise<void> {

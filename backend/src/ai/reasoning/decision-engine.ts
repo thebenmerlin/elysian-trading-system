@@ -217,6 +217,13 @@ export class AIDecisionEngine extends EventEmitter {
         signalType = 'HOLD';
         reasoning = 'Insufficient confidence for trade signal';
       }
+      // Add this at the end of generateSignal method, before return:
+      logger.info(`🎯 Signal generated for ${features.symbol}: ${signalType} (confidence: ${confidence.toFixed(2)}) - ${reasoning}`);
+
+      if (signalType !== 'HOLD') {
+      logger.info(`📊 Signal details: RSI=${features.rsi.toFixed(1)}, MACD=${features.macd.toFixed(3)}, Price=${features.price.toFixed(2)}`);
+      }
+
       
       return {
         symbol: features.symbol,
