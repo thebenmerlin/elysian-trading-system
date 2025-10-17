@@ -2,13 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  
-  // Vercel deployment optimization
-  experimental: {
-    optimizeCss: true,
-  },
 
-  // API rewrites for CORS handling
+  // ✅ Removed deprecated experimental.optimizeCss to fix "Cannot find module 'critters'" error
+
+  // Vercel deployment optimization and rewrites
   async rewrites() {
     return [
       {
@@ -18,7 +15,7 @@ const nextConfig = {
     ]
   },
 
-  // Headers for WebSocket and CORS
+  // ✅ Headers for WebSocket and CORS support
   async headers() {
     return [
       {
@@ -27,13 +24,17 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           { key: 'Access-Control-Allow-Origin', value: '*' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
-          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-elysian-key' },
+          {
+            key: 'Access-Control-Allow-Headers',
+            value:
+              'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-elysian-key',
+          },
         ],
       },
     ]
   },
 
-  // Image optimization
+  // ✅ Image optimization (kept)
   images: {
     domains: ['elysian-backend-bd3o.onrender.com'],
   },
