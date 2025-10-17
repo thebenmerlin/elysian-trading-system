@@ -334,23 +334,28 @@ export class BinanceWebSocketStream extends EventEmitter {
   }
 
   private async storePriceFeed(tick: CryptoTick): Promise<void> {
-    try {
-      const query = `
-        INSERT INTO price_feeds (symbol, asset_type, timestamp, close, volume, source)
-        VALUES ($1, 'crypto', NOW(), $2, $3, $4)
-        ON CONFLICT (symbol, timestamp) DO UPDATE SET
-          close = EXCLUDED.close,
-          volume = EXCLUDED.volume
-      `;
-      
-      const source = this.isConnected ? 'binance_ws' : 
-                    this.useFallback ? 'binance_rest' : 'coingecko';
-      
-      await DatabaseManager.query(query, [tick.symbol, tick.price, tick.quantity, source]);
-    } catch (error) {
-      logger.debug('Failed to store price feed:', error);
-    }
+  try {
+    // Store minute-level aggregated data to avoid conflicts
+    const query = `
+      INSERT INTO price_feeds (symbol, asset_type, timestamp, close, volume, source)
+      VALUES ($1, 'crypto', date_trunc('minute', NOW()), $2, $3, $4)
+      ON CONFLICT (symbol, asset_type, date_trunc('minute', timestamp)) 
+      DO UPDATE SET
+        close = EXCLUDED.close,
+        volume = GREATEST(price_feeds.volume, EXCLUDED.volume),
+        source = EXCLUDED.source
+    `;
+    
+    const source = this.isConnected ? 'binance_ws' : 
+                  this.useFallback ? 'binance_rest' : 'coingecko';
+    
+    await DatabaseManager.query(query, [tick.symbol, tick.price, tick.quantity, source]);
+  } catch (error) {
+    // If constraint still fails, just skip storing - don't crash
+    logger.debug(`Skipping price feed storage for ${tick.symbol}:`, error.message);
   }
+}
+
 
   async stop(): Promise<void> {
     if (this.ws) {
