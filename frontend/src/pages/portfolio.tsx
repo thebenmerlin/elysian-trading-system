@@ -1,16 +1,60 @@
 /**
- * Elysian Trading System - Portfolio Page (SAFE VERSION)
+ * Elysian Trading System - Portfolio Page (SAFE + TYPED VERSION)
  */
+
 import React from 'react'
 import { useQuery } from 'react-query'
 import { motion } from 'framer-motion'
-import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import MetricCard, { PnLCard, ReturnCard, SharpeCard, DrawdownCard } from '@/components/MetricCard'
+import {
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
+} from 'recharts'
+import MetricCard, { PnLCard, ReturnCard, SharpeCard } from '@/components/MetricCard'
 import { apiClient, formatCurrency, formatPercentage, formatDate, getPnLColor } from '@/utils/api'
 import { DollarSign, TrendingUp, Target, PieChart as PieChartIcon } from 'lucide-react'
 
+// ✅ Interfaces for type safety
+interface PortfolioPosition {
+  symbol: string
+  quantity: number
+  avg_price: number
+  market_value: number
+  unrealized_pnl: number
+  unrealized_pnl_pct: number
+}
+
+interface PortfolioMetrics {
+  total_return_pct: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  win_rate: number
+}
+
+interface PortfolioData {
+  total_value: number
+  cash: number
+  positions_value: number
+  daily_pnl: number
+  total_pnl: number
+  positions: PortfolioPosition[]
+  metrics: PortfolioMetrics
+}
+
+interface PortfolioHistoryEntry {
+  date: number
+  value: number
+}
+
 export default function Portfolio() {
-  // Data fetching with safe defaults
+  // ✅ Data fetching with type-safe wrappers
   const { data: portfolio, isLoading: portfolioLoading } = useQuery(
     'portfolio',
     () => apiClient.portfolio.getCurrent(),
@@ -23,8 +67,8 @@ export default function Portfolio() {
     { refetchInterval: 60000, retry: 1 }
   )
 
-  // Safe data extraction
-  const portfolioData = portfolio?.data || {
+  // ✅ Safe portfolio extraction with fallback
+  const portfolioData: PortfolioData = (portfolio as any)?.data || {
     total_value: 100000,
     cash: 100000,
     positions_value: 0,
@@ -37,34 +81,44 @@ export default function Portfolio() {
       max_drawdown_pct: 0,
       win_rate: 0
     }
-  };
+  }
 
-  // Safe allocation data
-  const allocationData = [
-    { symbol: 'CASH', percentage: 100, value: portfolioData.cash || 100000 }
-  ];
+  // ✅ Safe history data extraction with fallback
+  const historyData: PortfolioHistoryEntry[] =
+    (portfolioHistory as any)?.data?.data || [
+      { date: Date.now() - 30 * 24 * 60 * 60 * 1000, value: 100000 },
+      { date: Date.now(), value: portfolioData.total_value }
+    ]
 
-  // Safe history data
-  const historyData = [
-    { date: Date.now() - 30 * 24 * 60 * 60 * 1000, value: 100000 },
-    { date: Date.now(), value: portfolioData.total_value || 100000 }
-  ];
+  // ✅ Allocation fallback if no positions
+  const allocationData =
+    Array.isArray(portfolioData.positions) && portfolioData.positions.length > 0
+      ? portfolioData.positions.map((pos) => ({
+          symbol: pos.symbol,
+          percentage:
+            (pos.market_value / portfolioData.total_value) * 100 || 0,
+          value: pos.market_value
+        }))
+      : [{ symbol: 'CASH', percentage: 100, value: portfolioData.cash }]
 
-  const COLORS = ['#00FF9C', '#00D2FF', '#FFB800', '#FF5757', '#9333EA'];
+  const COLORS = ['#00FF9C', '#00D2FF', '#FFB800', '#FF5757', '#9333EA']
 
   return (
     <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6 font-mono">
       <div className="max-w-7xl mx-auto space-y-6">
-        
         {/* Header */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center justify-between"
         >
           <div>
-            <h1 className="text-3xl font-bold tracking-wider">PORTFOLIO OVERVIEW</h1>
-            <p className="text-terminal-muted mt-1">Real-time portfolio performance and allocation</p>
+            <h1 className="text-3xl font-bold tracking-wider">
+              PORTFOLIO OVERVIEW
+            </h1>
+            <p className="text-terminal-muted mt-1">
+              Real-time portfolio performance and allocation
+            </p>
           </div>
           <div className="text-right">
             <p className="text-sm text-terminal-muted">Last Updated</p>
@@ -87,16 +141,15 @@ export default function Portfolio() {
           <SharpeCard sharpe={portfolioData.metrics?.sharpe_ratio || 0} />
         </div>
 
-        {/* Charts and Tables Grid */}
+        {/* Charts Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Asset Allocation Chart */}
+          {/* Asset Allocation */}
           <div className="terminal-window">
             <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
               <PieChartIcon className="w-5 h-5" />
               Asset Allocation
             </h3>
-            
+
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -105,20 +158,24 @@ export default function Portfolio() {
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ symbol, percentage }) => `${symbol}: ${percentage.toFixed(1)}%`}
+                    label={({ symbol, percentage }) =>
+                      `${symbol}: ${percentage.toFixed(1)}%`
+                    }
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="percentage"
                   >
                     {allocationData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
                     ))}
                   </Pie>
-                  <Tooltip 
+                  <Tooltip
                     formatter={(value: any) => [`${value.toFixed(2)}%`, 'Allocation']}
-                    labelStyle={{ color: '#000' }}
-                    contentStyle={{ 
-                      backgroundColor: '#000', 
+                    contentStyle={{
+                      backgroundColor: '#000',
                       border: '1px solid #333',
                       color: '#00FF9C'
                     }}
@@ -128,43 +185,49 @@ export default function Portfolio() {
             </div>
           </div>
 
-          {/* Portfolio History Chart */}
+          {/* Portfolio History */}
           <div className="terminal-window">
             <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
               <TrendingUp className="w-5 h-5" />
               30-Day Performance
             </h3>
-            
+
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis 
-                    dataKey="date" 
+                  <XAxis
+                    dataKey="date"
                     type="number"
                     scale="time"
                     domain={['dataMin', 'dataMax']}
-                    tickFormatter={(timestamp) => new Date(timestamp).toLocaleDateString()}
+                    tickFormatter={(timestamp) =>
+                      new Date(timestamp).toLocaleDateString()
+                    }
                     stroke="#888"
                   />
-                  <YAxis 
+                  <YAxis
                     tickFormatter={(value) => formatCurrency(value)}
                     stroke="#888"
                   />
-                  <Tooltip 
-                    labelFormatter={(timestamp) => new Date(timestamp).toLocaleDateString()}
-                    formatter={(value: any) => [formatCurrency(value), 'Portfolio Value']}
-                    labelStyle={{ color: '#000' }}
-                    contentStyle={{ 
-                      backgroundColor: '#000', 
+                  <Tooltip
+                    labelFormatter={(timestamp) =>
+                      new Date(timestamp).toLocaleDateString()
+                    }
+                    formatter={(value: any) => [
+                      formatCurrency(value),
+                      'Portfolio Value'
+                    ]}
+                    contentStyle={{
+                      backgroundColor: '#000',
                       border: '1px solid #333',
                       color: '#00FF9C'
                     }}
                   />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#00FF9C" 
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#00FF9C"
                     strokeWidth={2}
                     dot={false}
                   />
@@ -180,8 +243,9 @@ export default function Portfolio() {
             <Target className="w-5 h-5" />
             Current Positions
           </h3>
-          
-          {Array.isArray(portfolioData.positions) && portfolioData.positions.length > 0 ? (
+
+          {Array.isArray(portfolioData.positions) &&
+          portfolioData.positions.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -195,23 +259,34 @@ export default function Portfolio() {
                   </tr>
                 </thead>
                 <tbody>
-                  {portfolioData.positions.map((position: any, index: number) => (
-                    <tr key={index} className="border-b border-terminal-border/30">
+                  {portfolioData.positions.map((position, index) => (
+                    <tr
+                      key={index}
+                      className="border-b border-terminal-border/30"
+                    >
                       <td className="py-2 font-bold text-terminal-secondary">
                         {position.symbol}
                       </td>
-                      <td className="text-right py-2">{position.quantity || 0}</td>
+                      <td className="text-right py-2">{position.quantity}</td>
                       <td className="text-right py-2">
-                        {formatCurrency(position.avg_price || 0)}
+                        {formatCurrency(position.avg_price)}
                       </td>
                       <td className="text-right py-2">
-                        {formatCurrency(position.market_value || 0)}
+                        {formatCurrency(position.market_value)}
                       </td>
-                      <td className={`text-right py-2 ${getPnLColor(position.unrealized_pnl || 0)}`}>
-                        {formatCurrency(position.unrealized_pnl || 0)}
+                      <td
+                        className={`text-right py-2 ${getPnLColor(
+                          position.unrealized_pnl
+                        )}`}
+                      >
+                        {formatCurrency(position.unrealized_pnl)}
                       </td>
-                      <td className={`text-right py-2 ${getPnLColor(position.unrealized_pnl_pct || 0)}`}>
-                        {formatPercentage(position.unrealized_pnl_pct || 0)}
+                      <td
+                        className={`text-right py-2 ${getPnLColor(
+                          position.unrealized_pnl_pct
+                        )}`}
+                      >
+                        {formatPercentage(position.unrealized_pnl_pct)}
                       </td>
                     </tr>
                   ))}

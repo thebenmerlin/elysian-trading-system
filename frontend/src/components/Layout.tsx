@@ -2,7 +2,7 @@
  * Main Layout Component - Dark Pro Mode
  */
 import React, { ReactNode } from 'react'
-import NavBar from './NavBar'
+import NavBar from './Navbar'
 import Sidebar from './Sidebar'
 
 interface LayoutProps {

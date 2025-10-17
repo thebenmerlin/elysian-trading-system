@@ -9,9 +9,42 @@ import { motion } from 'framer-motion'
 import { toast } from 'react-hot-toast'
 import { apiClient, formatDate, formatCurrency, formatPercentage } from '@/utils/api'
 import { Brain, TrendingUp, AlertTriangle, Target, RefreshCw } from 'lucide-react'
-// At the top of the file, update the import from api utils:
 
+// Define interfaces for type safety
+interface PerformanceSummary {
+  total_return_pct: number
+  sharpe_ratio: number
+  max_drawdown_pct: number
+  win_rate_pct: number
+}
 
+interface Mistake {
+  category: string
+  frequency: number
+  impact_pnl: number
+  description: string
+  examples: string[]
+}
+
+interface Recommendation {
+  area: string
+  priority: 'HIGH' | 'MEDIUM' | 'LOW'
+  reasoning: string
+  current_value: string | number
+  recommended_value: string | number
+}
+
+interface Reflection {
+  id: string
+  timestamp: string
+  confidence_score: number
+  performance_summary: PerformanceSummary
+  mistakes_identified: Mistake[]
+  successful_patterns: string[]
+  key_insights: string[]
+  recommended_adjustments: Recommendation[]
+  future_focus_areas: string[]
+}
 
 export default function Reflections() {
   const { data: reflections, refetch } = useQuery(
@@ -20,7 +53,8 @@ export default function Reflections() {
     { refetchInterval: 300000 }
   )
 
-  const reflectionsData = reflections?.data?.data || []
+  // Handle unknown response type safely
+  const reflectionsData: Reflection[] = (reflections as any)?.data?.data || []
 
   const handleGenerateReflection = async () => {
     try {
@@ -124,7 +158,7 @@ export default function Reflections() {
         {/* Reflections List */}
         <div className="space-y-6">
           {reflectionsData.length > 0 ? (
-            reflectionsData.map((reflection: any) => (
+            reflectionsData.map((reflection) => (
               <motion.div
                 key={reflection.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -181,7 +215,7 @@ export default function Reflections() {
                         Key Insights
                       </h3>
                       <div className="space-y-2">
-                        {reflection.key_insights.map((insight: string, index: number) => (
+                        {reflection.key_insights.map((insight, index) => (
                           <div key={index} className="flex items-start space-x-2 text-sm font-mono">
                             <span className="text-terminal-primary mt-1">•</span>
                             <span className="text-terminal-muted">{insight}</span>
@@ -199,7 +233,7 @@ export default function Reflections() {
                         Mistakes Identified
                       </h3>
                       <div className="space-y-3">
-                        {reflection.mistakes_identified.map((mistake: any, index: number) => (
+                        {reflection.mistakes_identified.map((mistake, index) => (
                           <div key={index} className="border border-terminal-warning border-opacity-30 rounded p-3">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-mono font-bold text-terminal-warning">
@@ -231,7 +265,7 @@ export default function Reflections() {
                         Recommendations
                       </h3>
                       <div className="space-y-3">
-                        {reflection.recommended_adjustments.map((rec: any, index: number) => (
+                        {reflection.recommended_adjustments.map((rec, index) => (
                           <div key={index} className="border border-terminal-primary border-opacity-30 rounded p-3">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-mono font-bold text-terminal-primary">
@@ -260,7 +294,7 @@ export default function Reflections() {
                         Future Focus Areas:
                       </h3>
                       <div className="flex flex-wrap gap-2">
-                        {reflection.future_focus_areas.map((area: string, index: number) => (
+                        {reflection.future_focus_areas.map((area, index) => (
                           <span 
                             key={index}
                             className="px-2 py-1 bg-terminal-border text-xs font-mono rounded"

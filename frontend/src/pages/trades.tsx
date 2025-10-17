@@ -9,6 +9,28 @@ import { motion } from 'framer-motion'
 import { apiClient, formatCurrency, formatDate, getStatusColor } from '@/utils/api'
 import { Activity, TrendingUp, TrendingDown, Clock } from 'lucide-react'
 
+// ✅ Define data interfaces for type safety
+interface Trade {
+  id: string
+  timestamp: string
+  symbol: string
+  side: 'BUY' | 'SELL'
+  quantity: number
+  price: number
+  executed_price: number
+  status: string
+  commission: number
+}
+
+interface TradeStats {
+  total_trades: number
+  buy_trades: number
+  sell_trades: number
+  total_volume: number
+  avg_trade_size: number
+  period_days: number
+}
+
 export default function Trades() {
   const { data: trades } = useQuery(
     'trades-history',
@@ -22,8 +44,9 @@ export default function Trades() {
     { refetchInterval: 60000 }
   )
 
-  const tradesData = trades?.data?.data || []
-  const statsData = tradeStats?.data?.data
+  // ✅ Safe data extraction with type assertion
+  const tradesData: Trade[] = (trades as any)?.data?.data || []
+  const statsData: TradeStats | null = (tradeStats as any)?.data?.data || null
 
   const getTradeIcon = (side: string) => {
     return side === 'BUY' ? (
@@ -138,7 +161,7 @@ export default function Trades() {
                     </tr>
                   </thead>
                   <tbody>
-                    {tradesData.map((trade: any) => (
+                    {tradesData.map((trade) => (
                       <tr key={trade.id}>
                         <td className="text-xs">
                           <div className="flex items-center space-x-1">
