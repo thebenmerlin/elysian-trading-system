@@ -1,208 +1,186 @@
 /**
- * Elysian Trading System - Trades Page
- * Trading history and statistics
+ * Trades Page - Standalone Version
+ * Can be accessed at /trades
  */
-
-import React from 'react'
+import React, { useState } from 'react'
 import { useQuery } from 'react-query'
 import { motion } from 'framer-motion'
-import { apiClient, formatCurrency, formatDate, getStatusColor } from '@/utils/api'
-import { Activity, TrendingUp, TrendingDown, Clock } from 'lucide-react'
+import Layout from '@/components/Layout'
+import { apiClient, formatCurrency, formatDate, getPnLColor } from '@/utils/api'
+import { TrendingUp, TrendingDown, Filter, Download } from 'lucide-react'
 
-// ✅ Define data interfaces for type safety
-interface Trade {
-  id: string
-  timestamp: string
-  symbol: string
-  side: 'BUY' | 'SELL'
-  quantity: number
-  price: number
-  executed_price: number
-  status: string
-  commission: number
-}
+export default function TradesPage() {
+  const [activeTab, setActiveTab] = useState('trades')
+  const [filter, setFilter] = useState<'ALL' | 'BUY' | 'SELL' | 'CRYPTO' | 'EQUITY'>('ALL')
 
-interface TradeStats {
-  total_trades: number
-  buy_trades: number
-  sell_trades: number
-  total_volume: number
-  avg_trade_size: number
-  period_days: number
-}
-
-export default function Trades() {
-  const { data: trades } = useQuery(
-    'trades-history',
-    () => apiClient.trades.getRecent(100),
-    { refetchInterval: 30000 }
+  // Fetch trades
+  const { data: tradesResponse, isLoading } = useQuery(
+    'trades-page',
+    () => apiClient.trades.getRecent(50),
+    { refetchInterval: 10000, retry: 1 }
   )
 
-  const { data: tradeStats } = useQuery(
-    'trade-statistics',
-    () => apiClient.trades.getStats(30),
-    { refetchInterval: 60000 }
-  )
+  const allTrades = tradesResponse?.data || []
 
-  // ✅ Safe data extraction with type assertion
-  const tradesData: Trade[] = (trades as any)?.data?.data || []
-  const statsData: TradeStats | null = (tradeStats as any)?.data?.data || null
+  // Filter trades
+  const filteredTrades = allTrades.filter((trade: any) => {
+    if (filter === 'ALL') return true
+    if (filter === 'BUY') return trade.side === 'BUY'
+    if (filter === 'SELL') return trade.side === 'SELL'
+    if (filter === 'CRYPTO') return trade.asset_type === 'crypto'
+    if (filter === 'EQUITY') return trade.asset_type === 'equity'
+    return true
+  })
 
-  const getTradeIcon = (side: string) => {
-    return side === 'BUY' ? (
-      <TrendingUp className="w-4 h-4 text-terminal-primary" />
-    ) : (
-      <TrendingDown className="w-4 h-4 text-terminal-error" />
+  // Calculate stats
+  const totalPnL = allTrades.reduce((sum: number, t: any) => sum + (t.pnl_realized || 0), 0)
+  const buyCount = allTrades.filter((t: any) => t.side === 'BUY').length
+  const sellCount = allTrades.filter((t: any) => t.side === 'SELL').length
+  const cryptoCount = allTrades.filter((t: any) => t.asset_type === 'crypto').length
+  const equityCount = allTrades.filter((t: any) => t.asset_type === 'equity').length
+
+  if (isLoading) {
+    return (
+      <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+        <div className="flex items-center justify-center h-full">
+          <div className="text-[#9ca3af] text-lg">Loading trades...</div>
+        </div>
+      </Layout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between"
-        >
-          <div>
-            <h1 className="text-3xl font-mono font-bold text-terminal-primary mb-2">
-              TRADING HISTORY
-            </h1>
-            <p className="text-terminal-muted font-mono">
-              Trade execution log and performance statistics
-            </p>
+    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+      <div className="space-y-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] p-4">
+            <div className="text-xs text-[#9ca3af] mb-1">Total Trades</div>
+            <div className="text-2xl font-bold text-[#f3f4f6]">{allTrades.length}</div>
           </div>
-        </motion.div>
-
-        {/* Trade Statistics */}
-        {statsData && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="metric-card">
-              <div className="flex items-center space-x-2 mb-2">
-                <Activity className="w-4 h-4 text-terminal-primary" />
-                <span className="text-terminal-muted text-sm font-mono">TOTAL TRADES</span>
-              </div>
-              <div className="text-xl font-mono font-bold">
-                {statsData.total_trades}
-              </div>
-              <div className="text-xs text-terminal-muted">
-                {(statsData.total_trades / statsData.period_days).toFixed(1)} per day
-              </div>
-            </div>
-
-            <div className="metric-card">
-              <div className="flex items-center space-x-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-terminal-primary" />
-                <span className="text-terminal-muted text-sm font-mono">BUY TRADES</span>
-              </div>
-              <div className="text-xl font-mono font-bold text-terminal-primary">
-                {statsData.buy_trades}
-              </div>
-              <div className="text-xs text-terminal-muted">
-                {((statsData.buy_trades / statsData.total_trades) * 100).toFixed(1)}% of total
-              </div>
-            </div>
-
-            <div className="metric-card">
-              <div className="flex items-center space-x-2 mb-2">
-                <TrendingDown className="w-4 h-4 text-terminal-error" />
-                <span className="text-terminal-muted text-sm font-mono">SELL TRADES</span>
-              </div>
-              <div className="text-xl font-mono font-bold text-terminal-error">
-                {statsData.sell_trades}
-              </div>
-              <div className="text-xs text-terminal-muted">
-                {((statsData.sell_trades / statsData.total_trades) * 100).toFixed(1)}% of total
-              </div>
-            </div>
-
-            <div className="metric-card">
-              <div className="flex items-center space-x-2 mb-2">
-                <span className="text-terminal-primary">💰</span>
-                <span className="text-terminal-muted text-sm font-mono">TOTAL VOLUME</span>
-              </div>
-              <div className="text-xl font-mono font-bold">
-                {formatCurrency(statsData.total_volume)}
-              </div>
-              <div className="text-xs text-terminal-muted">
-                Avg: {formatCurrency(statsData.avg_trade_size)}
-              </div>
+          <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] p-4">
+            <div className="text-xs text-[#9ca3af] mb-1">Buy Orders</div>
+            <div className="text-2xl font-bold text-[#10b981]">{buyCount}</div>
+          </div>
+          <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] p-4">
+            <div className="text-xs text-[#9ca3af] mb-1">Sell Orders</div>
+            <div className="text-2xl font-bold text-[#ef4444]">{sellCount}</div>
+          </div>
+          <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] p-4">
+            <div className="text-xs text-[#9ca3af] mb-1">Realized P&L</div>
+            <div className={`text-2xl font-bold ${getPnLColor(totalPnL)}`}>
+              {formatCurrency(totalPnL)}
             </div>
           </div>
-        )}
+          <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] p-4">
+            <div className="text-xs text-[#9ca3af] mb-1">Asset Split</div>
+            <div className="text-sm font-bold text-[#f3f4f6]">
+              {cryptoCount}C / {equityCount}E
+            </div>
+          </div>
+        </div>
 
         {/* Trades Table */}
-        <div className="terminal-window">
-          <div className="terminal-header">
-            <div className="terminal-dot red"></div>
-            <div className="terminal-dot yellow"></div>
-            <div className="terminal-dot green"></div>
-            <div className="ml-4 text-terminal-muted text-sm font-mono">
-              Trade Execution Log ({tradesData.length} trades)
+        <div className="bg-[#121417]/70 backdrop-blur-lg rounded-xl border border-[#1f2937] overflow-hidden">
+          {/* Header with Filters */}
+          <div className="px-6 py-4 border-b border-[#1f2937] flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-[#f3f4f6]">Trade History</h2>
+            <div className="flex gap-2">
+              {['ALL', 'BUY', 'SELL', 'CRYPTO', 'EQUITY'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f as any)}
+                  className={`px-3 py-1 text-xs font-semibold rounded transition-all ${
+                    filter === f
+                      ? 'bg-[#3b82f6] text-white'
+                      : 'bg-[#1f2937] text-[#9ca3af] hover:bg-[#374151]'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="terminal-content">
-            {tradesData.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="terminal-table">
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Symbol</th>
-                      <th>Side</th>
-                      <th>Quantity</th>
-                      <th>Price</th>
-                      <th>Executed Price</th>
-                      <th>Value</th>
-                      <th>Status</th>
-                      <th>Commission</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tradesData.map((trade) => (
-                      <tr key={trade.id}>
-                        <td className="text-xs">
-                          <div className="flex items-center space-x-1">
-                            <Clock className="w-3 h-3" />
-                            <span>{formatDate(trade.timestamp)}</span>
-                          </div>
-                        </td>
-                        <td className="font-bold text-terminal-primary">{trade.symbol}</td>
-                        <td>
-                          <div className="flex items-center space-x-1">
-                            {getTradeIcon(trade.side)}
-                            <span className={trade.side === 'BUY' ? 'text-terminal-primary' : 'text-terminal-error'}>
-                              {trade.side}
-                            </span>
-                          </div>
-                        </td>
-                        <td>{trade.quantity.toLocaleString()}</td>
-                        <td>{formatCurrency(trade.price)}</td>
-                        <td>{formatCurrency(trade.executed_price)}</td>
-                        <td>{formatCurrency(trade.quantity * trade.executed_price)}</td>
-                        <td>
-                          <span className={`status-indicator ${getStatusColor(trade.status)}`}>
-                            {trade.status}
-                          </span>
-                        </td>
-                        <td>{formatCurrency(trade.commission)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center text-terminal-muted py-12">
-                <div className="text-lg mb-2">📊</div>
-                <div className="text-lg mb-2">No trades executed yet</div>
-                <div className="text-sm">Start the trading runner to begin automated trading</div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-[#0a0b0d]">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase">Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase">Symbol</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase">Side</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase">Quantity</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase">Price</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase">Total Value</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase">Realized P&L</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-[#9ca3af] uppercase">Reasoning</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1f2937]">
+                {filteredTrades.map((trade: any, index: number) => (
+                  <motion.tr
+                    key={trade.id || index}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.02 }}
+                    className="hover:bg-[#1f2937]/50 transition-colors"
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-[#9ca3af]">
+                      {formatDate(trade.timestamp)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-[#f3f4f6]">{trade.symbol}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${
+                          trade.asset_type === 'crypto' 
+                            ? 'bg-yellow-500/10 text-yellow-500' 
+                            : 'bg-blue-500/10 text-blue-500'
+                        }`}>
+                          {trade.asset_type}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className={`flex items-center gap-1 text-sm font-bold ${
+                        trade.side === 'BUY' ? 'text-[#10b981]' : 'text-[#ef4444]'
+                      }`}>
+                        {trade.side === 'BUY' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                        {trade.side}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-mono text-[#f3f4f6]">
+                      {trade.quantity.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-mono text-[#f3f4f6]">
+                      {formatCurrency(trade.price)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-semibold text-[#f3f4f6]">
+                      {formatCurrency(trade.total_value)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <span className={`text-sm font-semibold ${getPnLColor(trade.pnl_realized || 0)}`}>
+                        {formatCurrency(trade.pnl_realized || 0)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 max-w-xs">
+                      <div className="text-xs text-[#9ca3af] truncate" title={trade.reasoning}>
+                        {trade.reasoning || 'N/A'}
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+
+            {filteredTrades.length === 0 && (
+              <div className="text-center py-12 text-[#9ca3af]">
+                No {filter.toLowerCase()} trades found
               </div>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </Layout>
   )
 }
