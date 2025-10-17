@@ -1,203 +1,127 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Terminal-style global styles */
-@layer base {
-  html {
-    font-family: SF Mono, Monaco, Fira Code, Consolas, monospace;
-  }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-  body {
-    @apply bg-terminal-bg text-terminal-primary;
-    overflow-x: hidden;
-  }
+html,
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #0a0b0d;
+  color: #f3f4f6;
+  overflow-x: hidden;
+}
 
-  /* Custom scrollbar */
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 
-  ::-webkit-scrollbar-track {
-    @apply bg-terminal-bg;
-  }
+::-webkit-scrollbar-track {
+  background: #121417;
+}
 
-  ::-webkit-scrollbar-thumb {
-    @apply bg-terminal-border rounded;
-  }
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 4px;
+}
 
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-terminal-muted;
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Smooth transitions */
+* {
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Prevent transition on page load */
+.no-transition {
+  transition: none !important;
+}
+
+/* Custom glow effects */
+.glow-accent {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.glow-success {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.glow-error {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+/* Glassmorphism helper */
+.glass {
+  background: rgba(18, 20, 23, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(31, 41, 55, 0.5);
+}
+
+/* Animation keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
-@layer components {
-  /* Terminal window styling */
-  .terminal-window {
-    @apply bg-terminal-bg border border-terminal-border rounded-lg shadow-2xl;
-    box-shadow: 0 0 50px rgba(0, 255, 156, 0.1);
-  }
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
 
-  .terminal-header {
-    @apply bg-terminal-border px-4 py-2 rounded-t-lg flex items-center space-x-2;
-  }
+/* Monospace font for numbers */
+.font-mono {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+  font-feature-settings: 'tnum';
+  font-variant-numeric: tabular-nums;
+}
 
-  .terminal-dot {
-    @apply w-3 h-3 rounded-full;
-  }
+/* Utility classes */
+.text-gradient {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
 
-  .terminal-dot.red {
-    @apply bg-terminal-error;
-  }
-
-  .terminal-dot.yellow {
-    @apply bg-terminal-warning;
-  }
-
-  .terminal-dot.green {
-    @apply bg-terminal-primary;
-  }
-
-  /* Terminal content */
-  .terminal-content {
-    @apply p-6 font-mono;
-  }
-
-  /* Metric cards */
-  .metric-card {
-    @apply bg-terminal-bg border border-terminal-border rounded-lg p-4 
-           hover:border-terminal-primary transition-colors duration-200;
-    box-shadow: 0 0 20px rgba(0, 255, 156, 0.05);
-  }
-
-  .metric-card.positive {
-    @apply border-terminal-primary;
-    box-shadow: 0 0 20px rgba(0, 255, 156, 0.1);
-  }
-
-  .metric-card.negative {
-    @apply border-terminal-error;
-    box-shadow: 0 0 20px rgba(255, 87, 87, 0.1);
-  }
-
-  /* Tables */
-  .terminal-table {
-    @apply w-full border-collapse;
-  }
-
-  .terminal-table th {
-    @apply bg-terminal-border text-terminal-primary px-4 py-2 text-left font-mono text-sm;
-  }
-
-  .terminal-table td {
-    @apply border-t border-terminal-border px-4 py-3 font-mono text-sm;
-  }
-
-  .terminal-table tr:hover {
-    @apply bg-terminal-border bg-opacity-20;
-  }
-
-  /* Buttons */
-  .btn-terminal {
-    @apply px-4 py-2 border border-terminal-primary text-terminal-primary
-           hover:bg-terminal-primary hover:text-terminal-bg
-           transition-all duration-200 rounded font-mono text-sm;
-  }
-
-  .btn-terminal:disabled {
-    @apply opacity-50 cursor-not-allowed;
-  }
-
-  .btn-terminal.danger {
-    @apply border-terminal-error text-terminal-error
-           hover:bg-terminal-error hover:text-terminal-bg;
-  }
-
-  /* Status indicators */
-  .status-indicator {
-    @apply inline-flex items-center px-2 py-1 rounded text-xs font-mono;
-  }
-
-  .status-indicator.running {
-    @apply bg-terminal-primary bg-opacity-20 text-terminal-primary;
-  }
-
-  .status-indicator.stopped {
-    @apply bg-terminal-muted bg-opacity-20 text-terminal-muted;
-  }
-
-  .status-indicator.error {
-    @apply bg-terminal-error bg-opacity-20 text-terminal-error;
-  }
-
-  /* Loading spinner */
-  .spinner {
-    @apply inline-block w-4 h-4 border-2 border-terminal-border border-t-terminal-primary rounded-full animate-spin;
-  }
-
-  /* Typewriter effect */
-  .typewriter {
-    overflow: hidden;
-    white-space: nowrap;
-    border-right: 2px solid #00FF9C;
-    animation: typewriter 3s steps(30) forwards, caret 1s infinite;
-  }
-
-  /* Pulse effect */
-  .pulse-green {
-    animation: pulse-green 2s infinite;
-  }
-
-  /* Chart container */
-  .chart-container {
-    @apply bg-terminal-bg border border-terminal-border rounded-lg p-4;
+/* Loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-@layer utilities {
-  /* Text colors */
-  .text-positive {
-    @apply text-terminal-primary;
-  }
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
 
-  .text-negative {
-    @apply text-terminal-error;
+/* Pulse animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
   }
-
-  .text-neutral {
-    @apply text-terminal-warning;
-  }
-
-  .text-muted {
-    @apply text-terminal-muted;
-  }
-
-  /* Glow effects */
-  .glow-green {
-    box-shadow: 0 0 20px rgba(0, 255, 156, 0.3);
-  }
-
-  .glow-red {
-    box-shadow: 0 0 20px rgba(255, 87, 87, 0.3);
-  }
-
-  .glow-blue {
-    box-shadow: 0 0 20px rgba(0, 210, 255, 0.3);
+  50% {
+    opacity: 0.5;
   }
 }
 
-/* Dark theme for charts */
-.recharts-cartesian-grid line {
-  stroke: #333 !important;
-}
-
-.recharts-text {
-  fill: #00FF9C !important;
-  font-family: monospace !important;
-  font-size: 12px !important;
-}
-
-.recharts-legend-text {
-  color: #00FF9C !important;
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

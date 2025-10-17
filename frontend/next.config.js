@@ -2,25 +2,41 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
-    NEXT_PUBLIC_API_KEY: process.env.NEXT_PUBLIC_API_KEY || 'elysian-demo-key'
+  
+  // Vercel deployment optimization
+  experimental: {
+    optimizeCss: true,
   },
+
+  // API rewrites for CORS handling
   async rewrites() {
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/:path*`
-      }
+        destination: 'https://elysian-backend-bd3o.onrender.com/api/:path*',
+      },
     ]
   },
-  images: {
-    domains: []
+
+  // Headers for WebSocket and CORS
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Credentials', value: 'true' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,DELETE,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-elysian-key' },
+        ],
+      },
+    ]
   },
-  webpack: (config) => {
-    config.resolve.fallback = { fs: false, path: false };
-    return config;
-  }
+
+  // Image optimization
+  images: {
+    domains: ['elysian-backend-bd3o.onrender.com'],
+  },
 }
 
 module.exports = nextConfig

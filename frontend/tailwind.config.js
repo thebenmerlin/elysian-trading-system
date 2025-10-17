@@ -8,56 +8,29 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // Terminal color scheme
-        'terminal': {
-          'bg': '#000000',
-          'primary': '#00FF9C',  // Bright green
-          'secondary': '#00D2FF', // Cyan
-          'warning': '#FFB800',   // Orange
-          'error': '#FF5757',     // Red
-          'muted': '#888888',     // Gray
-          'border': '#333333',    // Dark gray
-        }
+        // Dark Pro Theme
+        'dark-bg': '#0a0b0d',
+        'dark-panel': '#121417',
+        'dark-border': '#1f2937',
+        'accent-blue': '#3b82f6',
+        'accent-purple': '#8b5cf6',
+        'text-primary': '#f3f4f6',
+        'text-muted': '#9ca3af',
+        'success': '#10b981',
+        'error': '#ef4444',
+        'warning': '#f59e0b',
       },
       fontFamily: {
-        'mono': ['SF Mono', 'Monaco', 'Fira Code', 'Consolas', 'monospace'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Courier New', 'monospace'],
+      },
+      backdropBlur: {
+        xs: '2px',
       },
       animation: {
-        'typewriter': 'typewriter 2s steps(20) forwards',
-        'caret': 'caret 1s infinite',
-        'pulse-green': 'pulse-green 2s infinite',
-        'fade-in': 'fadeIn 0.5s ease-in forwards',
-        'slide-up': 'slideUp 0.3s ease-out forwards',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
-      keyframes: {
-        typewriter: {
-          '0%': { width: '0%' },
-          '100%': { width: '100%' }
-        },
-        caret: {
-          '0%, 50%': { opacity: '1' },
-          '51%, 100%': { opacity: '0' }
-        },
-        'pulse-green': {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.5' }
-        },
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' }
-        },
-        slideUp: {
-          '0%': { transform: 'translateY(20px)', opacity: '0' },
-          '100%': { transform: 'translateY(0)', opacity: '1' }
-        }
-      },
-      screens: {
-        'xs': '475px',
-      }
     },
   },
-  plugins: [
-    require('@tailwindcss/forms'),
-    require('@tailwindcss/typography'),
-  ],
+  plugins: [],
 }
