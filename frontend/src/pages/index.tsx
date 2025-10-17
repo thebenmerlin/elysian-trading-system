@@ -1,613 +1,501 @@
 /**
- * Elysian Trading System - Dual-Market Dashboard (CORRECTED)
+ * Elysian Autonomous Trading Terminal
+ * Real-time multi-tab terminal interface
  */
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useQuery } from 'react-query'
-import { motion } from 'framer-motion'
-import { toast } from 'react-hot-toast'
-import Terminal, { useTerminalLines } from '@/components/Terminal'
-import MetricCard, { PnLCard, ReturnCard, SharpeCard } from '@/components/MetricCard'
-import { apiClient, formatCurrency, formatPercentage, getStatusColor, getPnLColor } from '@/utils/api'
-import { Activity, TrendingUp, DollarSign, Target, Settings, Play, Square, RotateCcw, Globe } from 'lucide-react'
 
-export default function Dashboard() {
-  const [isRunning, setIsRunning] = useState(false)
-  const [showCrypto, setShowCrypto] = useState(true)
-  const [activeMarket, setActiveMarket] = useState<'both' | 'equity' | 'crypto'>('both')
-  
-  const { lines, addLine, addSuccess, addError, addCommand } = useTerminalLines([
-    { id: 'init', text: 'Elysian Dual-Market Trading System v2.0.0 initialized', type: 'success' },
-    { id: 'loading', text: 'Loading equity and crypto market data...', type: 'info' }
-  ])
+// WebSocket hook for real-time data
+const useWebSocket = (url: string) => {
+  const [isConnected, setIsConnected] = useState(false)
+  const [lastMessage, setLastMessage] = useState<any>(null)
+  const ws = useRef<WebSocket | null>(null)
 
-  const { data: portfolio, isLoading: portfolioLoading } = useQuery(
-    'portfolio',
-    () => apiClient.portfolio.getCurrent(),
-    {   
-      refetchInterval: 30000,
-      retry: 2,
-      onSuccess: (data) => {
-        if (data && !data.error) {
-          addSuccess(`Portfolio updated: ${formatCurrency(data.data?.total_value || 0)}`);
-        } else {
-          addError('Portfolio data incomplete');
-        }
-      },
-      onError: (error: any) => {
-        addError(`Failed to fetch portfolio: ${error.message || 'Unknown error'}`);
-      }
-    }
-  )
-
-  const { data: systemHealth } = useQuery(
-    'system-health',
-    () => apiClient.system.getHealth(),
-    {   
-      refetchInterval: 60000,
-      retry: 1,
-      onSuccess: (data) => {
-        if (data?.data) {
-          const status = data.data.status;
-          if (status === 'healthy') {
-            addSuccess('Dual-market system healthy');
-          } else {
-            addError(`System status: ${status}`);
-          }
-        }
-      },
-      onError: () => {
-        addError('Health check failed');
-      }
-    }
-  )
-
-  const { data: runnerStatus } = useQuery(
-    'runner-status',
-    () => apiClient.system.getRunnerStatus(),
-    {
-      refetchInterval: 30000,
-      retry: 1,
-      onSuccess: (data) => {
-        if (data?.data) {
-          setIsRunning(data.data.is_running || false);
-          const equityCount = (data.data as any).equity_run_count || 0;
-          const cryptoCount = (data.data as any).crypto_run_count || 0;
-          if (equityCount > 0 || cryptoCount > 0) {
-            addLine(`Cycles - Equity: ${equityCount}, Crypto: ${cryptoCount}`, 'info');
-          }
-        }
-      }
-    }
-  )
-
-  const { data: marketStatus } = useQuery(
-    'market-status',
-    async () => {
+  useEffect(() => {
+    const connectWS = () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://elysian-backend-bd3o.onrender.com'}/api/market/status`, {
-          headers: { 'x-elysian-key': process.env.NEXT_PUBLIC_API_KEY || 'elysian-demo-key' }
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-      } catch (error) {
-        return {
-          data: {
-            equity: { is_open: false, trading_hours: '9:30 AM - 4:00 PM EST' },
-            crypto: { is_open: true, trading_hours: '24/7' }
+        const wsUrl = url.replace('http', 'ws')
+        ws.current = new WebSocket(`${wsUrl}/ws`)
+        
+        ws.current.onopen = () => {
+          setIsConnected(true)
+          console.log('WebSocket connected')
+          // Subscribe to all channels
+          ws.current?.send(JSON.stringify({ type: 'subscribe', data: { channel: 'all' } }))
+        }
+        
+        ws.current.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            setLastMessage(data)
+          } catch (error) {
+            console.error('WebSocket message error:', error)
           }
-        };
+        }
+        
+        ws.current.onclose = () => {
+          setIsConnected(false)
+          console.log('WebSocket disconnected')
+          // Reconnect after 5 seconds
+          setTimeout(connectWS, 5000)
+        }
+        
+        ws.current.onerror = (error) => {
+          console.error('WebSocket error:', error)
+        }
+      } catch (error) {
+        console.error('WebSocket connection failed:', error)
+        setTimeout(connectWS, 5000)
       }
-    },
-    { refetchInterval: 60000, retry: 1 }
+    }
+
+    connectWS()
+
+    return () => {
+      ws.current?.close()
+    }
+  }, [url])
+
+  return { isConnected, lastMessage }
+}
+
+// Terminal component
+const TerminalWindow: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+  <div className="bg-black border border-green-500 rounded-sm font-mono text-sm">
+    <div className="bg-green-500 text-black px-3 py-1 font-bold text-xs">
+      {title}
+    </div>
+    <div className="p-3 h-full overflow-auto">
+      {children}
+    </div>
+  </div>
+)
+
+// Price ticker component
+const PriceTicker: React.FC<{ symbol: string; price: number; change: number; type: string }> = 
+  ({ symbol, price, change, type }) => (
+    <div className="flex justify-between items-center py-1 border-b border-green-900 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <span className="text-green-400 font-bold">{symbol}</span>
+        <span className={`text-xs px-1 py-0.5 rounded ${
+          type === 'crypto' ? 'bg-yellow-600 text-black' : 'bg-blue-600 text-white'
+        }`}>
+          {type.toUpperCase()}
+        </span>
+      </div>
+      <div className="text-right">
+        <div className="text-green-400">
+          ${price?.toLocaleString(undefined, { 
+            minimumFractionDigits: type === 'crypto' && price < 1 ? 4 : 2,
+            maximumFractionDigits: type === 'crypto' && price < 1 ? 4 : 2
+          })}
+        </div>
+        <div className={`text-xs ${change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+          {change >= 0 ? '+' : ''}{change?.toFixed(2)}%
+        </div>
+      </div>
+    </div>
+  )
+
+// Trade log component
+const TradeLog: React.FC<{ trade: any }> = ({ trade }) => (
+  <div className="flex justify-between items-center py-1 border-b border-green-900 last:border-b-0 text-xs">
+    <div className="flex items-center gap-2">
+      <span className={`font-bold ${trade.side === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+        {trade.side}
+      </span>
+      <span className="text-green-400">{trade.symbol}</span>
+      <span className={`px-1 py-0.5 rounded text-black ${
+        trade.asset_type === 'crypto' ? 'bg-yellow-400' : 'bg-blue-400'
+      }`}>
+        {trade.asset_type?.toUpperCase()}
+      </span>
+    </div>
+    <div className="text-right">
+      <div>{trade.quantity} @ ${trade.price?.toFixed(2)}</div>
+      <div className="text-green-600">
+        {new Date(trade.timestamp).toLocaleTimeString()}
+      </div>
+    </div>
+  </div>
+)
+
+// Signal feed component
+const SignalFeed: React.FC<{ signal: any }> = ({ signal }) => (
+  <div className="border-b border-green-900 last:border-b-0 py-2 text-xs">
+    <div className="flex justify-between items-center mb-1">
+      <div className="flex items-center gap-2">
+        <span className={`font-bold ${
+          signal.signal_type === 'BUY' ? 'text-green-400' : 
+          signal.signal_type === 'SELL' ? 'text-red-400' : 'text-yellow-400'
+        }`}>
+          {signal.signal_type}
+        </span>
+        <span className="text-green-400">{signal.symbol}</span>
+        <span className="text-green-600">
+          {(signal.confidence * 100)?.toFixed(0)}%
+        </span>
+      </div>
+      <span className="text-green-600">
+        {new Date(signal.timestamp).toLocaleTimeString()}
+      </span>
+    </div>
+    <div className="text-green-300 text-xs leading-relaxed">
+      {signal.reasoning}
+    </div>
+  </div>
+)
+
+// Main dashboard
+export default function AutonomousTerminal() {
+  const [activeTab, setActiveTab] = useState(0)
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([])
+  
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elysian-backend-bd3o.onrender.com'
+  const { isConnected, lastMessage } = useWebSocket(API_URL)
+
+  // Fetch live data
+  const { data: liveAssets } = useQuery(
+    'live-assets',
+    () => fetch(`${API_URL}/api/assets/live`, {
+      headers: { 'x-elysian-key': 'elysian-demo-key' }
+    }).then(res => res.json()),
+    { refetchInterval: 5000, retry: 1 }
   )
 
   const { data: recentTrades } = useQuery(
     'recent-trades',
-    () => apiClient.trades.getRecent(10),
-    { 
-      refetchInterval: 30000,
-      retry: 1,
-      onError: () => {
-        addError('Failed to fetch trades');
-      }
-    }
+    () => fetch(`${API_URL}/api/trades/recent?limit=20`, {
+      headers: { 'x-elysian-key': 'elysian-demo-key' }
+    }).then(res => res.json()),
+    { refetchInterval: 10000, retry: 1 }
   )
 
-  const { data: cryptoData } = useQuery(
-    'crypto-market-data',
-    async () => {
-      try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://elysian-backend-bd3o.onrender.com'}/api/crypto/latest`, {
-          headers: { 'x-elysian-key': process.env.NEXT_PUBLIC_API_KEY || 'elysian-demo-key' }
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-      } catch (error) {
-        return { data: [] };
-      }
-    },
-    { 
-      refetchInterval: 10000,
-      retry: 1,
-      onSuccess: (data) => {
-        if (data?.data && Array.isArray(data.data) && data.data.length > 0) {
-          addLine(`Crypto updated: ${data.data.length} pairs`, 'success');
-        }
-      }
-    }
+  const { data: recentSignals } = useQuery(
+    'recent-signals',
+    () => fetch(`${API_URL}/api/signals/recent?limit=15`, {
+      headers: { 'x-elysian-key': 'elysian-demo-key' }
+    }).then(res => res.json()),
+    { refetchInterval: 15000, retry: 1 }
   )
 
-  const { data: latestReflection } = useQuery(
-    'latest-reflection',
-    () => apiClient.reflections.getLatest(),
-    { refetchInterval: 300000, retry: 1 }
+  const { data: portfolioData } = useQuery(
+    'portfolio-live',
+    () => fetch(`${API_URL}/api/portfolio/live`, {
+      headers: { 'x-elysian-key': 'elysian-demo-key' }
+    }).then(res => res.json()),
+    { refetchInterval: 10000, retry: 1 }
   )
 
-  // Safe data extraction with defaults
-  const portfolioData = portfolio?.data || {
-    total_value: 100000,
-    cash: 100000,
-    positions_value: 0,
-    daily_pnl: 0,
-    total_pnl: 0,
-    metrics: {
-      total_return_pct: 0,
-      sharpe_ratio: 0,
-      max_drawdown_pct: 0,
-      win_rate: 0
+  const { data: systemEvents } = useQuery(
+    'system-events',
+    () => fetch(`${API_URL}/api/system/events?limit=30`, {
+      headers: { 'x-elysian-key': 'elysian-demo-key' }
+    }).then(res => res.json()),
+    { refetchInterval: 10000, retry: 1 }
+  )
+
+  // Handle WebSocket messages
+  useEffect(() => {
+    if (lastMessage) {
+      const timestamp = new Date().toLocaleTimeString()
+      let logMessage = ''
+      
+      switch (lastMessage.type) {
+        case 'price_update':
+          logMessage = `[${timestamp}] PRICE: ${lastMessage.data.symbol} → $${lastMessage.data.price.toFixed(2)}`
+          break
+        case 'signal_generated':
+          logMessage = `[${timestamp}] SIGNAL: ${lastMessage.data.signal_type} ${lastMessage.data.symbol} (${(lastMessage.data.confidence * 100).toFixed(0)}%)`
+          break
+        case 'trade_executed':
+          logMessage = `[${timestamp}] TRADE: ${lastMessage.data.side} ${lastMessage.data.quantity} ${lastMessage.data.symbol} @ $${lastMessage.data.price.toFixed(2)}`
+          break
+        case 'system_event':
+          logMessage = `[${timestamp}] SYSTEM: ${lastMessage.data.message}`
+          break
+        default:
+          logMessage = `[${timestamp}] ${lastMessage.type}: ${JSON.stringify(lastMessage.data)}`
+      }
+      
+      if (logMessage) {
+        setTerminalLogs(prev => [logMessage, ...prev.slice(0, 99)]) // Keep last 100 logs
+      }
     }
-  };
+  }, [lastMessage])
 
-  const healthData = systemHealth?.data || {
-    status: 'unknown',
-    database: 'unknown'
-  };
-
-  // Safe runner data with proper type handling
-  const runnerData = runnerStatus?.data || {
-    is_running: false,
-    equity_config: { tickers: [], run_interval_minutes: 15 },
-    crypto_config: { tickers: [], run_interval_minutes: 5 },
-    equity_run_count: 0,
-    crypto_run_count: 0,
-    system_health: 1.0
-  };
-
-  // Create safe runner data accessor
-  const safeRunnerData = {
-    is_running: runnerData.is_running || false,
-    equity_config: (runnerData as any).equity_config || { tickers: [], run_interval_minutes: 15 },
-    crypto_config: (runnerData as any).crypto_config || { tickers: [], run_interval_minutes: 5 },
-    equity_run_count: (runnerData as any).equity_run_count || 0,
-    crypto_run_count: (runnerData as any).crypto_run_count || 0,
-    system_health: (runnerData as any).system_health || 1.0
-  };
-
-  const marketData = marketStatus?.data || {
-    equity: { is_open: false, trading_hours: '9:30 AM - 4:00 PM EST' },
-    crypto: { is_open: true, trading_hours: '24/7' }
-  };
-
-  const tradesData = Array.isArray(recentTrades?.data) ? recentTrades.data : [];
-  const cryptoMarketData = Array.isArray(cryptoData?.data) ? cryptoData.data : [];
-
-  const reflectionData = latestReflection?.data;
-  const safeInsights = Array.isArray(reflectionData?.key_insights) ? reflectionData.key_insights : [];
-  const safeRecommendations = Array.isArray(reflectionData?.recommended_adjustments) ? reflectionData.recommended_adjustments : [];
-
-  // Enhanced action handlers
-  const handleStartRunner = async () => {
-    try {
-      addCommand('start-dual-market-runner');
-      await apiClient.system.startRunner();
-      addSuccess('Dual-market runner started');
-      setIsRunning(true);
-      toast.success('Runner started');
-    } catch (error: any) {
-      addError(`Failed to start: ${error.message}`);
-      toast.error('Failed to start');
-    }
-  }
-
-  const handleStopRunner = async () => {
-    try {
-      addCommand('stop-dual-market-runner');
-      await apiClient.system.stopRunner();
-      addSuccess('Dual-market runner stopped');
-      setIsRunning(false);
-      toast.success('Runner stopped');
-    } catch (error: any) {
-      addError(`Failed to stop: ${error.message}`);
-      toast.error('Failed to stop');
-    }
-  }
-
-  const handleRunCycle = async () => {
-    try {
-      addCommand('run-trading-cycle');
-      addLine('Executing trading cycle...', 'info');
-      await apiClient.system.runCycle();
-      addSuccess('Cycle completed');
-      toast.success('Cycle completed');
-    } catch (error: any) {
-      addError(`Cycle failed: ${error.message}`);
-      toast.error('Cycle failed');
-    }
-  }
+  const tabs = ['DASHBOARD', 'MARKETS', 'SIGNALS', 'TRADES', 'ANALYTICS']
+  
+  const portfolio = portfolioData?.data
+  const assets = liveAssets?.data || []
+  const trades = recentTrades?.data || []
+  const signals = recentSignals?.data || []
+  const events = systemEvents?.data || []
 
   return (
-    <div className="min-h-screen bg-terminal-bg text-terminal-primary p-6 font-mono">
-      <div className="max-w-7xl mx-auto space-y-6">
-        
-        {/* Enhanced Header */}
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between"
-        >
+    <div className="min-h-screen bg-black text-green-400 font-mono text-sm">
+      {/* Header */}
+      <div className="border-b border-green-500 p-4">
+        <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-wider">PROJECT ELYSIAN</h1>
-            <p className="text-terminal-muted mt-1">DUAL-MARKET AUTONOMOUS TRADING • BY GAJANAN BARVE</p>
+            <h1 className="text-2xl font-bold text-green-400">ELYSIAN AUTONOMOUS TRADING SYSTEM</h1>
+            <p className="text-green-600 text-xs mt-1">
+              Multi-Asset AI Fund • Real-time WebSocket • By Gajanan Barve
+            </p>
           </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="flex gap-2">
-              <div className={`px-2 py-1 rounded text-xs border ${
-                marketData.equity?.is_open 
-                  ? 'border-terminal-primary bg-terminal-primary/10 text-terminal-primary' 
-                  : 'border-terminal-muted bg-terminal-muted/10 text-terminal-muted'
-              }`}>
-                📈 EQUITY {marketData.equity?.is_open ? 'OPEN' : 'CLOSED'}
-              </div>
-              <div className="px-2 py-1 rounded text-xs border border-yellow-400 bg-yellow-400/10 text-yellow-400">
-                🪙 CRYPTO 24/7
-              </div>
+          <div className="flex items-center gap-4 text-xs">
+            <div className={`px-2 py-1 rounded ${isConnected ? 'bg-green-600 text-black' : 'bg-red-600 text-white'}`}>
+              WS: {isConnected ? 'CONNECTED' : 'DISCONNECTED'}
             </div>
-            
-            <div className={`px-3 py-1 rounded border ${
-              isRunning ? 'border-terminal-primary bg-terminal-primary/10' : 'border-terminal-error bg-terminal-error/10'
-            }`}>
-              <span className={`text-sm font-bold ${isRunning ? 'text-terminal-primary' : 'text-terminal-error'}`}>
-                {isRunning ? 'RUNNING' : 'STOPPED'}
-              </span>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Enhanced Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <MetricCard
-            title="Portfolio Value"
-            value={formatCurrency(portfolioData.total_value)}
-            change={portfolioData.daily_pnl}
-            changeType="currency"
-            loading={portfolioLoading}
-            icon={<DollarSign />}
-            subtitle="Equity + Crypto"
-          />
-          <PnLCard pnl={portfolioData.total_pnl || 0} />
-          <ReturnCard returnPct={portfolioData.metrics?.total_return_pct || 0} />
-          <div className="metric-card neutral">
-            <div className="flex items-center justify-between mb-2">
-              <Globe className="w-4 h-4" />
-              <div className="text-xs text-terminal-muted">
-                Health: {(safeRunnerData.system_health * 100).toFixed(0)}%
-              </div>
-            </div>
-            <h3 className="text-sm font-bold text-terminal-secondary mb-2">System Health</h3>
-            <div className="text-2xl font-mono">
-              {safeRunnerData.system_health >= 0.8 ? '🟢' : safeRunnerData.system_health >= 0.5 ? '🟡' : '🔴'}
-            </div>
-            <div className="text-xs text-terminal-muted mt-1">
-              {safeRunnerData.system_health >= 0.8 ? 'Excellent' : safeRunnerData.system_health >= 0.5 ? 'Good' : 'Degraded'}
+            <div className="text-green-400">
+              {new Date().toLocaleTimeString()}
             </div>
           </div>
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Terminal Display */}
-          <div className="lg:col-span-2">
-            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-              <Activity className="w-5 h-5" />
-              System Activity
-              <span className="text-sm text-terminal-muted ml-2">
-                (Equity: {safeRunnerData.equity_run_count} | Crypto: {safeRunnerData.crypto_run_count} cycles)
-              </span>
-            </h2>
-            
-            {/* Trading Controls */}
-            <div className="mb-4 flex gap-3 flex-wrap">
-              <button
-                onClick={handleStartRunner}
-                disabled={isRunning}
-                className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors ${
-                  isRunning 
-                    ? 'bg-terminal-muted text-terminal-bg opacity-50 cursor-not-allowed'
-                    : 'bg-terminal-primary text-terminal-bg hover:bg-terminal-secondary'
-                }`}
-              >
-                <Play className="w-4 h-4" />
-                START DUAL-MARKET
-              </button>
-              
-              <button
-                onClick={handleStopRunner}
-                disabled={!isRunning}
-                className={`px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors ${
-                  !isRunning 
-                    ? 'bg-terminal-muted text-terminal-bg opacity-50 cursor-not-allowed'
-                    : 'bg-terminal-error text-white hover:bg-red-600'
-                }`}
-              >
-                <Square className="w-4 h-4" />
-                STOP ALL
-              </button>
-              
-              <button
-                onClick={handleRunCycle}
-                className="px-4 py-2 rounded font-bold flex items-center gap-2 transition-colors bg-terminal-secondary text-terminal-bg hover:bg-terminal-warning"
-              >
-                <RotateCcw className="w-4 h-4" />
-                RUN CYCLE
-              </button>
+        {/* Tab Navigation */}
+        <div className="flex mt-4 border-b border-green-900">
+          {tabs.map((tab, index) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(index)}
+              className={`px-4 py-2 text-xs font-bold transition-colors ${
+                activeTab === index
+                  ? 'bg-green-500 text-black'
+                  : 'text-green-400 hover:text-green-300'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
 
-              <div className="flex rounded border border-terminal-border overflow-hidden">
-                {(['both', 'equity', 'crypto'] as const).map((market) => (
-                  <button
-                    key={market}
-                    onClick={() => setActiveMarket(market)}
-                    className={`px-3 py-2 text-xs font-bold transition-colors ${
-                      activeMarket === market
-                        ? 'bg-terminal-primary text-terminal-bg'
-                        : 'bg-terminal-bg text-terminal-muted hover:text-terminal-primary'
-                    }`}
-                  >
-                    {market.toUpperCase()}
-                  </button>
-                ))}
+      {/* Tab Content */}
+      <div className="p-4 h-[calc(100vh-140px)]">
+        <AnimatePresence mode="wait">
+          {/* DASHBOARD Tab */}
+          {activeTab === 0 && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="grid grid-cols-12 gap-4 h-full"
+            >
+              {/* Portfolio Stats */}
+              <div className="col-span-4">
+                <TerminalWindow title="PORTFOLIO STATUS">
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span>Total Value:</span>
+                      <span className="text-green-400 font-bold">
+                        ${portfolio?.total_value?.toLocaleString() || '100,000'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Cash Balance:</span>
+                      <span>${portfolio?.cash_balance?.toLocaleString() || '100,000'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Positions:</span>
+                      <span>${portfolio?.positions_value?.toLocaleString() || '0'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Total P&L:</span>
+                      <span className={portfolio?.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                        ${portfolio?.total_pnl?.toLocaleString() || '0'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Daily P&L:</span>
+                      <span className={portfolio?.daily_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                        ${portfolio?.daily_pnl?.toLocaleString() || '0'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Positions:</span>
+                      <span>{portfolio?.positions_count || 0}</span>
+                    </div>
+                  </div>
+                </TerminalWindow>
               </div>
-            </div>
-            
-            <Terminal lines={lines} />
-          </div>
 
-          {/* Enhanced Right Sidebar */}
-          <div className="space-y-6">
-            
-            {/* System Status */}
-            <div className="terminal-window">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <Settings className="w-4 h-4" />
-                System Status
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-bold text-terminal-secondary">Health Check</p>
-                  <div className="mt-2 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Database:</span>
-                      <span className={getStatusColor(healthData.database)}>
-                        {(healthData.database || 'UNKNOWN').toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>System:</span>
-                      <span className={getStatusColor(healthData.status)}>
-                        {(healthData.status || 'UNKNOWN').toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Mode:</span>
-                      <span className="text-terminal-warning">PAPER TRADING</span>
-                    </div>
+              {/* Live Activity Feed */}
+              <div className="col-span-8">
+                <TerminalWindow title="LIVE ACTIVITY FEED">
+                  <div className="h-full overflow-auto space-y-1">
+                    {terminalLogs.length > 0 ? (
+                      terminalLogs.map((log, index) => (
+                        <div key={index} className="text-xs text-green-300">
+                          {log}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-green-600 text-center py-4">
+                        Waiting for live data...
+                      </div>
+                    )}
                   </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-bold text-terminal-secondary">Market Hours</p>
-                  <div className="mt-2 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Equity:</span>
-                      <span className={marketData.equity?.is_open ? 'text-terminal-primary' : 'text-terminal-muted'}>
-                        {marketData.equity?.trading_hours || '9:30 AM - 4:00 PM EST'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Crypto:</span>
-                      <span className="text-yellow-400">
-                        {marketData.crypto?.trading_hours || '24/7'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-sm font-bold text-terminal-secondary">Configuration</p>
-                  <div className="mt-2 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span>Equity Interval:</span>
-                      <span className="text-terminal-muted">
-                        {safeRunnerData.equity_config?.run_interval_minutes || 15}min
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Crypto Interval:</span>
-                      <span className="text-yellow-400">
-                        {safeRunnerData.crypto_config?.run_interval_minutes || 5}min
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                </TerminalWindow>
               </div>
-            </div>
+            </motion.div>
+          )}
 
-            {/* Crypto Market Data */}
-            {showCrypto && (
-              <div className="terminal-window">
-                <h3 className="text-lg font-bold mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-yellow-400">₿</span>
-                    Crypto Markets
+          {/* MARKETS Tab */}
+          {activeTab === 1 && (
+            <motion.div
+              key="markets"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="grid grid-cols-2 gap-4 h-full"
+            >
+              <div>
+                <TerminalWindow title="CRYPTO MARKETS">
+                  <div className="space-y-1">
+                    {assets.filter((asset: any) => asset.asset_type === 'crypto').map((asset: any) => (
+                      <PriceTicker
+                        key={asset.symbol}
+                        symbol={asset.symbol}
+                        price={asset.price}
+                        change={asset.change_24h || 0}
+                        type="crypto"
+                      />
+                    ))}
                   </div>
-                  <button
-                    onClick={() => setShowCrypto(!showCrypto)}
-                    className="text-xs px-2 py-1 border border-terminal-border rounded hover:bg-terminal-border/20"
-                  >
-                    Hide
-                  </button>
-                </h3>
-                
-                {cryptoMarketData.length > 0 ? (
+                </TerminalWindow>
+              </div>
+
+              <div>
+                <TerminalWindow title="EQUITY MARKETS">
+                  <div className="space-y-1">
+                    {assets.filter((asset: any) => asset.asset_type === 'equity').map((asset: any) => (
+                      <PriceTicker
+                        key={asset.symbol}
+                        symbol={asset.symbol}
+                        price={asset.price}
+                        change={asset.change_24h || 0}
+                        type="equity"
+                      />
+                    ))}
+                  </div>
+                </TerminalWindow>
+              </div>
+            </motion.div>
+          )}
+
+          {/* SIGNALS Tab */}
+          {activeTab === 2 && (
+            <motion.div
+              key="signals"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="h-full"
+            >
+              <TerminalWindow title="AI REASONING & SIGNALS">
+                <div className="h-full overflow-auto">
+                  {signals.length > 0 ? (
+                    signals.map((signal: any, index: number) => (
+                      <SignalFeed key={index} signal={signal} />
+                    ))
+                  ) : (
+                    <div className="text-green-600 text-center py-4">
+                      No recent signals
+                    </div>
+                  )}
+                </div>
+              </TerminalWindow>
+            </motion.div>
+          )}
+
+          {/* TRADES Tab */}
+          {activeTab === 3 && (
+            <motion.div
+              key="trades"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="h-full"
+            >
+              <TerminalWindow title="TRADE EXECUTION LOG">
+                <div className="h-full overflow-auto">
+                  {trades.length > 0 ? (
+                    trades.map((trade: any, index: number) => (
+                      <TradeLog key={index} trade={trade} />
+                    ))
+                  ) : (
+                    <div className="text-green-600 text-center py-4">
+                      No recent trades
+                    </div>
+                  )}
+                </div>
+              </TerminalWindow>
+            </motion.div>
+          )}
+
+          {/* ANALYTICS Tab */}
+          {activeTab === 4 && (
+            <motion.div
+              key="analytics"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="grid grid-cols-12 gap-4 h-full"
+            >
+              {/* System Status */}
+              <div className="col-span-6">
+                <TerminalWindow title="SYSTEM STATUS">
                   <div className="space-y-2">
-                    {cryptoMarketData.slice(0, 5).map((crypto: any, index: number) => (
-                      <div key={index} className="flex justify-between items-center text-sm border-b border-terminal-border/20 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-terminal-secondary">
-                            {crypto.symbol?.replace('USDT', '/USDT') || 'N/A'}
-                          </span>
-                          <span className="text-xs px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
-                            CRYPTO
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-mono">
-                            ${parseFloat(crypto.close || 0).toLocaleString(undefined, {
-                              minimumFractionDigits: (crypto.close || 0) > 1 ? 2 : 6,
-                              maximumFractionDigits: (crypto.close || 0) > 1 ? 2 : 6
-                            })}
-                          </div>
-                          <div className={`text-xs ${getPnLColor(crypto.change_24h || 0)}`}>
-                            {crypto.change_24h ? `${crypto.change_24h > 0 ? '+' : ''}${crypto.change_24h.toFixed(2)}%` : '0.00%'}
-                          </div>
-                        </div>
+                    <div className="flex justify-between">
+                      <span>WebSocket:</span>
+                      <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+                        {isConnected ? 'CONNECTED' : 'DISCONNECTED'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>AI Engine:</span>
+                      <span className="text-green-400">ACTIVE</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Trade Executor:</span>
+                      <span className="text-green-400">READY</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Data Sources:</span>
+                      <span className="text-green-400">REST + WS</span>
+                    </div>
+                  </div>
+                </TerminalWindow>
+              </div>
+
+              {/* System Events */}
+              <div className="col-span-6">
+                <TerminalWindow title="SYSTEM EVENTS">
+                  <div className="h-full overflow-auto space-y-1">
+                    {events.map((event: any, index: number) => (
+                      <div key={index} className="text-xs">
+                        <span className="text-green-600">
+                          [{new Date(event.timestamp).toLocaleTimeString()}]
+                        </span>
+                        <span className={`ml-2 ${
+                          event.severity === 'ERROR' ? 'text-red-400' :
+                          event.severity === 'WARN' ? 'text-yellow-400' : 'text-green-400'
+                        }`}>
+                          {event.event_type}: {typeof event.event_data === 'object' 
+                            ? JSON.stringify(event.event_data) 
+                            : event.event_data}
+                        </span>
                       </div>
                     ))}
-                    
-                    <div className="text-xs text-terminal-muted mt-3 pt-2 border-t border-terminal-border/20">
-                      <div className="flex justify-between">
-                        <span>Data Source:</span>
-                        <span className="text-terminal-secondary">Binance API</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Update:</span>
-                        <span className="text-terminal-secondary">10 seconds</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Status:</span>
-                        <span className="text-terminal-primary">24/7 ACTIVE</span>
-                      </div>
-                    </div>
                   </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-terminal-muted text-sm">Loading crypto data...</p>
-                    <div className="mt-2 text-xs text-terminal-muted">
-                      Connecting to Binance API...
-                    </div>
-                  </div>
-                )}
+                </TerminalWindow>
               </div>
-            )}
-
-            {/* Show Crypto Button */}
-            {!showCrypto && (
-              <div className="terminal-window">
-                <button
-                  onClick={() => setShowCrypto(true)}
-                  className="w-full py-3 text-sm font-bold text-yellow-400 border border-yellow-400/20 rounded hover:bg-yellow-400/10 transition-colors"
-                >
-                  <span className="mr-2">₿</span>
-                  Show Crypto Markets
-                </button>
-              </div>
-            )}
-
-            {/* Recent Trades */}
-            <div className="terminal-window">
-              <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4" />
-                Recent Trades
-              </h3>
-              
-              {tradesData.length > 0 ? (
-                <div className="space-y-2">
-                  {tradesData.slice(0, 5).map((trade: any, index: number) => (
-                    <div key={index} className="flex justify-between items-center text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className={`font-bold ${
-                          trade.side === 'BUY' ? 'text-terminal-primary' : 'text-terminal-error'
-                        }`}>
-                          {trade.side}
-                        </span>
-                        <span className={`text-xs px-1 py-0.5 rounded ${
-                          trade.market_type === 'crypto' 
-                            ? 'bg-yellow-500/20 text-yellow-400' 
-                            : 'bg-blue-500/20 text-blue-400'
-                        }`}>
-                          {(trade.market_type || 'equity').toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <div>{trade.symbol}</div>
-                        <div className="text-terminal-muted text-xs">
-                          {trade.quantity} @ ${(trade.executed_price || 0).toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-terminal-muted text-sm">No recent trades</p>
-                  <div className="mt-2 text-xs text-terminal-muted">
-                    Start the runner to begin trading
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* AI Insights */}
-            {reflectionData && (
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="terminal-window"
-              >
-                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                  <Target className="w-4 h-4" />
-                  Latest AI Insights
-                </h3>
-                
-                <div className="space-y-4 text-sm">
-                  {safeInsights.length > 0 && (
-                    <div>
-                      <h4 className="font-bold text-terminal-secondary mb-2">Key Insights:</h4>
-                      <ul className="space-y-1">
-                        {safeInsights.slice(0, 3).map((insight: string, index: number) => (
-                          <li key={index} className="text-terminal-muted">• {insight}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  
-                  {safeRecommendations.length > 0 && (
-                    <div>
-                      <h4 className="font-bold text-terminal-secondary mb-2">Recommendations:</h4>
-                      <ul className="space-y-1">
-                        {safeRecommendations.slice(0, 2).map((rec: any, index: number) => (
-                          <li key={index} className="text-terminal-muted">• {rec.reasoning || rec.toString()}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </div>
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
